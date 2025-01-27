@@ -1,4 +1,4 @@
-# AAAKD (2025-1 brAIn research program)
+# AAAKD (1st brAIn research program)
 Attention-Aware Adaptive Knowledge Distillation for Vision Transformers
 
 ### Contributors:
