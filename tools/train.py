@@ -1,6 +1,5 @@
 from config import Config
-from model.models import get_model
-from model.models import DistillWrapper
+from model.models import VisionModelWrapper
 from model.loss import DistillationLoss, call_base_loss
 import argparse
 from logs.logger import setup_logger
@@ -91,21 +90,9 @@ def main():
     device = setup_device(args) 
     seed_everything(args.seed)
 
-    teacher_model = get_model(args.teacher_model, pretrained=True, drop_path_rate=args.drop_path_rate, fp16=args.fp16)
-    student_model = get_model(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate, fp16=args.fp16)
-
-    if args.resume:
-        checkpoint = torch.load(args.checkpoint)
-        student_model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        if 'scaler_state_dict' in checkpoint:
-            grad_scaler.load_state_dict(checkpoint['scaler_state_dict'])
-        start_epoch = checkpoint['epoch']
-    else:
-        start_epoch = 0
-
-    teacher_model = DistillWrapper(teacher_model, is_teacher=True, args=args)
-    student_model = DistillWrapper(student_model, is_teacher=False, args=args)
+    teacher_model = VisionModelWrapper(args.teacher_model, pretrained=True, drop_path_rate=args.drop_path_rate)
+    student_model = VisionModelWrapper(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate)
+    teacher_model = teacher_model.freeze_model()
 
     if args.wandb:
         wandb.init(project='distill-vit', config=args)
@@ -116,10 +103,22 @@ def main():
 
     optimizer = OptimizerFactory.create_optimizer(student_model, args)
     scheduler = Scheduler(optimizer, args)
-    grad_scaler = ScaledGradNorm(args)
+    # grad_scaler = ScaledGradNorm(args)
+    grad_scaler = None
 
     criterion_task = call_base_loss(args)
     criterion_distillation = DistillationLoss(base_criterion=criterion_task, teacher_model=teacher_model, distillation_type=args.distillation_type, alpha=args.alpha, tau=args.tau)
+
+    if args.resume:
+        checkpoint = torch.load(args.checkpoint)
+        student_model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        # if 'scaler_state_dict' in checkpoint:
+        #     grad_scaler.load_state_dict(checkpoint['scaler_state_dict'])
+        start_epoch = checkpoint['epoch']
+    else:
+        start_epoch = 0
+
 
     if args.mixup:
         mixup_fn = dataset_builder.build_mixup_fn()

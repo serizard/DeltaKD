@@ -1,23 +1,30 @@
+from timm.models import create_model
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Dict, Tuple, Optional, Union
-from collections import OrderedDict
+from typing import List, Dict, Optional
 from functools import partial
 import timm
 
-class DistilledModel(nn.Module):
-    def __init__(self, model_name: str, pretrained: bool = True, args: dict = None):
+
+class VisionModelWrapper(nn.Module):
+    def __init__(
+        self,
+        model_name: str,
+        pretrained: bool = True,
+        drop_path_rate: float = 0.1,
+    ):
         super().__init__()
-        self.model = timm.create_model(model_name, pretrained=pretrained, drop_path_rate=args.drop_path_rate)
+        self.model = timm.create_model(model_name, pretrained=pretrained, drop_path_rate=drop_path_rate)
         self.features = {}
         self._register_hooks()
-
-        if args.fp16:
-            self.model = self.model.half()
-        else:
-            self.model = self.model.float()
         
+    def freeze_model(self):
+        for param in self.model.parameters():
+            param.requires_grad = False
+        self.model.eval()
+        return self
+    
     def get_features(self, name: str, module: nn.Module, input: torch.Tensor, output: torch.Tensor):
         if isinstance(output, (list, tuple)):
             self.features[name] = output[0]
@@ -31,7 +38,6 @@ class DistilledModel(nn.Module):
             self._register_vit_hooks()
     
     def _register_swin_hooks(self):
-        """Register hooks for Swin Transformer layers"""
         # Stage outputs
         for i, stage in enumerate(self.model.layers):
             stage.register_forward_hook(
@@ -50,7 +56,6 @@ class DistilledModel(nn.Module):
                 )
     
     def _register_vit_hooks(self):
-        """Register hooks for ViT layers"""
         for i, block in enumerate(self.model.blocks):
             # Full block output
             block.register_forward_hook(
@@ -83,7 +88,30 @@ class DistilledModel(nn.Module):
                 types[feat_type] = []
             types[feat_type].append(key)
         return types
-
+    
+    # @torch.no_grad()
+    # def get_feature_stats(
+    #     self,
+    #     layer_type: str = 'block',
+    #     indices: Optional[List[int]] = None
+    # ) -> Dict[str, Dict[str, Union[float, List[float], Tuple]]]:
+    #     features = self.get_layer_outputs(layer_type, indices)
+    #     stats = {}
+        
+    #     for name, feat in features.items():
+    #         stats[name] = {
+    #             'shape': tuple(feat.shape),
+    #             'mean': feat.mean().item(),
+    #             'std': feat.std().item(),
+    #             'min': feat.min().item(),
+    #             'max': feat.max().item()
+    #         }
+            
+    #         # Add attention-specific stats if applicable
+    #         if 'attn' in name and len(feat.shape) == 4:
+    #             stats[name]['mean_attention_per_head'] = feat[0].mean(dim=(1,2)).tolist()
+                
+    #     return stats
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)

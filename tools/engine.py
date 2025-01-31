@@ -27,7 +27,8 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
         
         optimizer.zero_grad()
         loss.backward()
-        grad_scaler(student_model.parameters())
+        if grad_scaler is not None:
+            grad_scaler(student_model.parameters())
         optimizer.step()
         
         if model_ema is not None:
