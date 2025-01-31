@@ -7,15 +7,19 @@ from collections import defaultdict, deque
 import sys
 
 def setup_logger(log_file):
+    rank = 0 
+    if dist.is_initialized():
+        rank = dist.get_rank() 
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(formatter)
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    logger.addHandler(stream_handler)
+    if rank == 0: 
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(formatter)
+        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)
     return logger
 
 
@@ -108,7 +112,7 @@ class MetricLogger:
     def add_meter(self, name, meter):
         self.meters[name] = meter
 
-    def log_every(self, iterable, print_freq, header=None):
+    def log_every(self, iterable, print_freq, header=None, rank=0):
         i = 0
         if not header:
             header = ''
@@ -137,11 +141,12 @@ class MetricLogger:
                 eta_seconds = iter_time.global_avg * (len(iterable) - i)
                 eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
                 if torch.cuda.is_available():
-                    print(log_msg.format(
-                        i, len(iterable), eta=eta_string,
-                        meters=str(self),
-                        time=str(iter_time), data=str(data_time),
-                        memory=torch.cuda.max_memory_allocated() / MB))
+                    if rank == 0:
+                        print(log_msg.format(
+                            i, len(iterable), eta=eta_string,
+                            meters=str(self),
+                            time=str(iter_time), data=str(data_time),
+                            memory=torch.cuda.max_memory_allocated() / MB))
                 else:
                     print(log_msg.format(
                         i, len(iterable), eta=eta_string,

@@ -10,7 +10,7 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
     metric_logger = MetricLogger()
 
     header = f'Epoch: [{epoch+1}/{args.epochs}]'
-    for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(train_loader, 100, header)):
+    for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(train_loader, 10, header, args.rank)):
         if mixup_fn is not None:
             original_targets = targets.to(device, non_blocking=True)
             samples, targets = mixup_fn(samples, targets)
@@ -38,24 +38,23 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
         
         if model_ema is not None:
             model_ema.update(student_model)
-            
-        scheduler.step_update(epoch * len(train_loader) + data_iter_step)
         
-        batch_size = samples.shape[0]
         metric_logger.update(train_loss=loss.item())
         metric_logger.update(train_acc1=acc1.item())
         metric_logger.update(train_acc5=acc5.item())
         metric_logger.update(train_lr=scheduler.get_lr())
+
+    scheduler.step(epoch)
         
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 @torch.no_grad()
-def validate(student_model, val_loader, criterion, device):
+def validate(student_model, val_loader, criterion, device, args):
     student_model.eval()
     metric_logger = MetricLogger()
 
     header = 'Val:'
-    for samples, targets in metric_logger.log_every(val_loader, 100, header):
+    for samples, targets in metric_logger.log_every(val_loader, 10, header, args.rank):
         samples = samples.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
 

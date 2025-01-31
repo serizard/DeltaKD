@@ -23,9 +23,6 @@ class Scheduler:
     def step(self, epoch, metric=None):
         self.lr_scheduler.step(epoch)
 
-    def step_update(self, num_updates):
-        self.lr_scheduler.step_update(num_updates)
-
     def get_lr(self):
         return self.optimizer.param_groups[0]['lr']
 

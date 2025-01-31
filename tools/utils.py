@@ -4,28 +4,51 @@ import torch.distributed as dist
 import numpy as np
 import random
 import shutil
+import datetime
 
 def setup_distributed(args):
-    if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
-        args.rank = int(os.environ["RANK"])
+    args.distributed = False
+    if 'WORLD_SIZE' in os.environ:
         args.world_size = int(os.environ['WORLD_SIZE'])
-        args.gpu = int(os.environ['LOCAL_RANK'])
-    elif 'SLURM_PROCID' in os.environ:
-        args.rank = int(os.environ['SLURM_PROCID'])
-        args.gpu = args.rank % torch.cuda.device_count()
+        if args.world_size > 1:
+            args.rank = int(os.environ['RANK'])
+            args.gpu = int(os.environ['LOCAL_RANK'])
+            args.distributed = True
+        else:
+            args.distributed = False
+            args.rank = 0
+            args.gpu = 0
+    elif args.gpus is not None: # 사용자 지정 GPU가 있을 때 (torchrun 미사용)
+    # Legacy multi-GPU using CUDA_VISIBLE_DEVICES, single node only
+        gpu_list = [int(gpu) for gpu in args.gpus.split(',')]
+        num_gpus = len(gpu_list)
+        if num_gpus > 1:
+            args.distributed = True
+            os.environ['CUDA_VISIBLE_DEVICES'] = args.gpus # Set visible GPUs
+            args.rank = 0
+            args.world_size = num_gpus
+            args.gpu = 0
+        else:
+            args.distributed = False
+            args.gpu = gpu_list[0] if gpu_list else 0
     else:
         print('Not using distributed mode')
         args.distributed = False
-        return
+        args.rank = 0
+        args.gpu = 0
 
-    args.distributed = True
-    torch.cuda.set_device(args.gpu)
-    args.dist_backend = 'nccl'
-    print(f'| distributed init (rank {args.rank}): {args.dist_url}')
-    dist.init_process_group(
-        backend=args.dist_backend, init_method=args.dist_url,
-        world_size=args.world_size, rank=args.rank)
-    dist.barrier()
+    if args.distributed:
+        torch.cuda.set_device(args.gpu)
+        args.dist_backend = 'nccl'
+        print(f'| distributed init (rank {args.rank}): {args.dist_url}')
+        dist.init_process_group(
+            backend=args.dist_backend,
+            init_method=args.dist_url,
+            world_size=args.world_size,
+            rank=args.rank,
+            timeout=datetime.timedelta(0, 1800),
+        )
+        dist.barrier()
 
 
 def setup_device(args):

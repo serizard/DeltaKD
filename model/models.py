@@ -30,8 +30,10 @@ class VisionModelWrapper(nn.Module):
             return 10
         elif args.dataset == 'cifar-100':
             return 100
-        elif args.dataset == 'imagenet':
+        elif args.dataset == 'imagenet-1k':
             return 1000
+        elif args.dataset == 'imagenet-21k':
+            return 21841
         else:
             raise ValueError(f"Unknown dataset: {args.dataset}")
 
@@ -104,30 +106,6 @@ class VisionModelWrapper(nn.Module):
                 types[feat_type] = []
             types[feat_type].append(key)
         return types
-    
-    # @torch.no_grad()
-    # def get_feature_stats(
-    #     self,
-    #     layer_type: str = 'block',
-    #     indices: Optional[List[int]] = None
-    # ) -> Dict[str, Dict[str, Union[float, List[float], Tuple]]]:
-    #     features = self.get_layer_outputs(layer_type, indices)
-    #     stats = {}
-        
-    #     for name, feat in features.items():
-    #         stats[name] = {
-    #             'shape': tuple(feat.shape),
-    #             'mean': feat.mean().item(),
-    #             'std': feat.std().item(),
-    #             'min': feat.min().item(),
-    #             'max': feat.max().item()
-    #         }
-            
-    #         # Add attention-specific stats if applicable
-    #         if 'attn' in name and len(feat.shape) == 4:
-    #             stats[name]['mean_attention_per_head'] = feat[0].mean(dim=(1,2)).tolist()
-                
-    #     return stats
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         output = self.model(x)
