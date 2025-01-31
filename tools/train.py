@@ -1,12 +1,11 @@
 from config import Config
 from model.models import get_model
-from model.wrapper import DistillWrapper
-from loss import *
+from model.models import DistillWrapper
+from model.loss import DistillationLoss, call_base_loss
 import argparse
 from logs.logger import setup_logger
 import torch
 import wandb
-from timm.data import Mixup
 from dataset.datasets import DatasetBuilder
 from schedules import OptimizerFactory, Scheduler, ScaledGradNorm
 from timm.utils import ModelEma
@@ -27,7 +26,8 @@ def parse_args():
                             help='Teacher model architecture')
     model_group.add_argument('--student_model', type=str, default=Config.student_model,
                             help='Student model architecture')
-    
+    model_group.add_argument('--fp16', action='store_true', help='Use FP16 training')
+
     # Training hyperparameters
     train_group = parser.add_argument_group('Training')
     train_group.add_argument('--batch_size', type=int, default=Config.batch_size)
@@ -36,24 +36,21 @@ def parse_args():
     train_group.add_argument('--num_workers', type=int, default=Config.num_workers)
     train_group.add_argument('--amp', action='store_true', 
                             help='Use mixed precision training')
-    
-    # Distillation weights
+    train_group.add_argument('--weight_decay', type=float, default=Config.weight_decay)
+    train_group.add_argument('--opt', type=str, default='adamw')
+    train_group.add_argument('--warmup_epochs', type=int, default=Config.warmup_epochs)
+    train_group.add_argument('--drop_path_rate', type=float, default=Config.drop_path_rate)
+    train_group.add_argument('--label_smoothing', type=float, default=Config.label_smoothing)
+    train_group.add_argument('--ema_decay', type=float, default=None)
+
+    # Distillation
     distill_group = parser.add_argument_group('Distillation')
-    distill_group.add_argument('--weight_attn', type=float, default=Config.weight_attn,
-                              help='Attention distillation weight')
-    distill_group.add_argument('--weight_token', type=float, default=Config.weight_token,
-                              help='Token distillation weight')
-    distill_group.add_argument('--weight_pos', type=float, default=Config.weight_pos,
-                              help='Position embedding distillation weight')
-    distill_group.add_argument('--weight_ent_align', type=float, default=Config.weight_ent_align,
-                              help='Entropy alignment weight')
-    
-    # Threshold arguments
-    threshold_group = parser.add_argument_group('Thresholds')
-    threshold_group.add_argument('--alpha_threshold', type=float, default=Config.alpha_threshold,
-                                help='Dynamic entropy threshold')
-    threshold_group.add_argument('--local_head_threshold', type=float, default=Config.local_head_threshold,
-                                help='Local/Global head classification threshold')
+    distill_group.add_argument('--distillation_type', type=str, choices=['none', 'soft', 'hard', 'vitkd', 'aaakd', 'vitkd_w_logit', 'aaakd_w_logit'], default='none',
+                              help='Distillation type')
+    distill_group.add_argument('--alpha', type=float, default=Config.alpha,
+                              help='Alpha for distillation')
+    distill_group.add_argument('--tau', type=float, default=Config.tau,
+                              help='Tau for distillation')
     
     # Saving and logging
     log_group = parser.add_argument_group('Logging')
@@ -61,6 +58,10 @@ def parse_args():
     log_group.add_argument('--save_dir', type=str, default='checkpoints')
     log_group.add_argument('--wandb', action='store_true', 
                           help='Use Weights & Biases logging')
+    
+    # Data
+    data_group = parser.add_argument_group('Data')
+    data_group.add_argument('--data_path', type=str, default='dataset')
     
     # Miscellaneous settings
     misc_group = parser.add_argument_group('Miscellaneous')
@@ -73,9 +74,9 @@ def parse_args():
     misc_group.add_argument('--device', type=str, 
                            default='cuda' if torch.cuda.is_available() else 'cpu',
                            help='Device to use for training')
-    misc_group.add_argument('--dataset', type=str, default='cifar-100',
+    misc_group.add_argument('--dataset', type=str, default='cifar-10',
                            help='Dataset to use for training')
-    misc_group.add_argument('--mixup', action='store_true',
+    misc_group.add_argument('--mixup', action='store_true', default=True,
                            help='Use Mixup data augmentation')
     
     return parser.parse_args()
@@ -86,28 +87,25 @@ def main():
     args = parse_args()
     print(args)
 
-    config = Config()
-
-    logger = setup_logger('train.log')
-    logger.info(f"Training started with {args.teacher_model} as teacher and {args.student_model} as student")
-
     setup_distributed(args)
     device = setup_device(args) 
     seed_everything(args.seed)
 
-    teacher_model = get_model(args.teacher_model, pretrained=True)
-    student_model = get_model(args.student_model, pretrained=False)
+    teacher_model = get_model(args.teacher_model, pretrained=True, drop_path_rate=args.drop_path_rate, fp16=args.fp16)
+    student_model = get_model(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate, fp16=args.fp16)
 
     if args.resume:
         checkpoint = torch.load(args.checkpoint)
         student_model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if 'scaler_state_dict' in checkpoint:
+            grad_scaler.load_state_dict(checkpoint['scaler_state_dict'])
         start_epoch = checkpoint['epoch']
     else:
         start_epoch = 0
 
-    teacher_model = DistillWrapper(teacher_model, is_teacher=True)
-    student_model = DistillWrapper(student_model, is_teacher=False)
+    teacher_model = DistillWrapper(teacher_model, is_teacher=True, args=args)
+    student_model = DistillWrapper(student_model, is_teacher=False, args=args)
 
     if args.wandb:
         wandb.init(project='distill-vit', config=args)
@@ -116,16 +114,19 @@ def main():
     train_loader, train_sampler = dataset_builder.build_loader(is_train=True)
     val_loader, _ = dataset_builder.build_loader(is_train=False)   
 
-    optimizer = OptimizerFactory.create(student_model, args)
+    optimizer = OptimizerFactory.create_optimizer(student_model, args)
     scheduler = Scheduler(optimizer, args)
     grad_scaler = ScaledGradNorm(args)
+
+    criterion_task = call_base_loss(args)
+    criterion_distillation = DistillationLoss(base_criterion=criterion_task, teacher_model=teacher_model, distillation_type=args.distillation_type, alpha=args.alpha, tau=args.tau)
 
     if args.mixup:
         mixup_fn = dataset_builder.build_mixup_fn()
     else:
         mixup_fn = None
 
-    if args.ema:
+    if args.ema_decay:
         model_ema = ModelEma(student_model, decay=args.ema_decay, device=device)
     else:
         model_ema = None
@@ -133,12 +134,27 @@ def main():
     if args.distributed:
         student_model = DDP(student_model, device_ids=[args.gpu], output_device=args.gpu, find_unused_parameters=True)
         teacher_model = DDP(teacher_model, device_ids=[args.gpu], output_device=args.gpu, find_unused_parameters=True)
+    else:
+        student_model = student_model.to(device)
+        teacher_model = teacher_model.to(device)
 
+    logger = setup_logger('train.log')
     logger.info(f"Training started with {args.teacher_model} as teacher and {args.student_model} as student")
 
     for epoch in range(start_epoch, args.epochs):
-        train_metrics = train_one_epoch(student_model, teacher_model, train_loader, optimizer, scheduler, grad_scaler, mixup_fn, model_ema, device, args)
-        val_metrics = validate(student_model, val_loader, device, args)
+        train_metrics = train_one_epoch(student_model = student_model,
+                                        teacher_model = teacher_model,
+                                        train_loader = train_loader,
+                                        criterion = criterion_distillation,
+                                        optimizer = optimizer,
+                                        scheduler = scheduler,
+                                        grad_scaler = grad_scaler,
+                                        mixup_fn = mixup_fn,
+                                        model_ema = model_ema,
+                                        device = device,
+                                        epoch = epoch,
+                                        args = args)
+        val_metrics = validate(student_model, val_loader, criterion_distillation, device, args)
         if args.wandb:
             wandb.log(train_metrics, step=epoch)
             wandb.log(val_metrics, step=epoch)

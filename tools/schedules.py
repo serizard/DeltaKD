@@ -13,7 +13,6 @@ class Scheduler:
         self.lr_scheduler = CosineLRScheduler(
             self.optimizer,
             t_initial=self.args.epochs,
-            t_mul=1.0,
             lr_min=1e-5,
             warmup_lr_init=0.0,
             warmup_t=self.args.warmup_epochs,
@@ -76,37 +75,40 @@ class OptimizerFactory:
             {'params': no_decay, 'weight_decay': 0.}
         ]
 
-class ScaledGradNorm:
-    def __init__(self, args):
-        self.args = args
-        self.grad_clip = args.grad_clip if hasattr(args, 'grad_clip') else None
-        self.grad_accum_steps = args.grad_accum_steps if hasattr(args, 'grad_accum_steps') else 1
 
-    def __call__(self, parameters):
-        if self.grad_clip is None:
-            return
+### Gradient Clipping ###
+
+# class ScaledGradNorm:
+#     def __init__(self, args):
+#         self.args = args
+#         self.grad_clip = args.grad_clip if hasattr(args, 'grad_clip') else None
+#         self.grad_accum_steps = args.grad_accum_steps if hasattr(args, 'grad_accum_steps') else 1
+
+#     def __call__(self, parameters):
+#         if self.grad_clip is None:
+#             return
             
-        # Scale gradients by grad accumulation steps
-        if self.grad_accum_steps > 1:
-            for p in parameters:
-                if p.grad is not None:
-                    p.grad.data.div_(self.grad_accum_steps)
+#         # Scale gradients by grad accumulation steps
+#         if self.grad_accum_steps > 1:
+#             for p in parameters:
+#                 if p.grad is not None:
+#                     p.grad.data.div_(self.grad_accum_steps)
                     
-        # Clip gradients
-        torch.nn.utils.clip_grad_norm_(parameters, self.grad_clip)
+#         # Clip gradients
+#         torch.nn.utils.clip_grad_norm_(parameters, self.grad_clip)
 
-class AverageMeter:
-    def __init__(self):
-        self.reset()
+# class AverageMeter:
+#     def __init__(self):
+#         self.reset()
 
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
+#     def reset(self):
+#         self.val = 0
+#         self.avg = 0
+#         self.sum = 0
+#         self.count = 0
 
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
+#     def update(self, val, n=1):
+#         self.val = val
+#         self.sum += val * n
+#         self.count += n
+#         self.avg = self.sum / self.count

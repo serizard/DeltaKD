@@ -1,5 +1,5 @@
 import torch
-import torch.nn as nn
+from timm.loss import LabelSmoothingCrossEntropy
 import torch.nn.functional as F
 
 class DistillationLoss(torch.nn.Module):
@@ -52,3 +52,13 @@ class DistillationLoss(torch.nn.Module):
             pass
         loss = base_loss * (1 - self.alpha) + distillation_loss * self.alpha
         return loss
+
+
+
+def call_base_loss(args):
+    if args.dataset in ['cifar-100', 'cifar-10']:
+        return LabelSmoothingCrossEntropy(smoothing=args.label_smoothing)
+    elif args.dataset in ['imagenet-1k', 'imagenet-21k']:
+        return LabelSmoothingCrossEntropy(smoothing=args.label_smoothing)
+    else:
+        raise ValueError(f"Unsupported dataset: {args.dataset}. Supported datasets are {['cifar-100', 'cifar-10', 'imagenet-1k', 'imagenet-21k']}")

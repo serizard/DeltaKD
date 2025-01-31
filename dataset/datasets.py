@@ -6,7 +6,7 @@ from timm.data.distributed_sampler import OrderedDistributedSampler
 from torch.utils.data import DataLoader, DistributedSampler
 from torchvision import datasets
 
-from dataset_cfg import CIFAR10Config, CIFAR100Config, ImageNet1KConfig, ImageNet21KConfig  
+from dataset.dataset_cfg import CIFAR10Config, CIFAR100Config, ImageNet1KConfig, ImageNet21KConfig  
 
 class DatasetFactory:
     _DATASET_CONFIGS = {
@@ -112,7 +112,7 @@ class DatasetBuilder:
             prob=self.config.MIXUP['prob'],
             switch_prob=self.config.MIXUP['switch_prob'],
             mode=self.config.MIXUP['mode'],
-            label_smoothing=self.config.MIXUP['label_smoothing'],
+            label_smoothing=self.args.label_smoothing,
             num_classes=self.config.NUM_CLASSES
         )
         return mixup_fn
