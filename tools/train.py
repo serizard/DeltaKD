@@ -6,7 +6,7 @@ from logs.logger import setup_logger
 import torch
 import wandb
 from dataset.datasets import DatasetBuilder
-from schedules import OptimizerFactory, Scheduler, ScaledGradNorm
+from schedules import OptimizerFactory, Scheduler
 from timm.utils import ModelEma
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
@@ -53,7 +53,7 @@ def parse_args():
     
     # Saving and logging
     log_group = parser.add_argument_group('Logging')
-    log_group.add_argument('--log_file', type=str, default='train.log')
+    log_group.add_argument('--log_file', type=str, default='logs/train.log')
     log_group.add_argument('--save_dir', type=str, default='checkpoints')
     log_group.add_argument('--wandb', action='store_true', 
                           help='Use Weights & Biases logging')
@@ -81,7 +81,6 @@ def parse_args():
     return parser.parse_args()
 
 
-
 def main():
     args = parse_args()
     print(args)
@@ -90,8 +89,8 @@ def main():
     device = setup_device(args) 
     seed_everything(args.seed)
 
-    teacher_model = VisionModelWrapper(args.teacher_model, pretrained=True, drop_path_rate=args.drop_path_rate)
-    student_model = VisionModelWrapper(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate)
+    teacher_model = VisionModelWrapper(args.teacher_model, pretrained=True, drop_path_rate=args.drop_path_rate, args=args)
+    student_model = VisionModelWrapper(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate, args=args)
     teacher_model = teacher_model.freeze_model()
 
     if args.wandb:
@@ -153,7 +152,7 @@ def main():
                                         device = device,
                                         epoch = epoch,
                                         args = args)
-        val_metrics = validate(student_model, val_loader, criterion_distillation, device, args)
+        val_metrics = validate(student_model, val_loader, criterion_distillation, device)
         if args.wandb:
             wandb.log(train_metrics, step=epoch)
             wandb.log(val_metrics, step=epoch)

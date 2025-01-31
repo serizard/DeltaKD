@@ -10,8 +10,9 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
     metric_logger = MetricLogger()
 
     header = f'Epoch: [{epoch+1}/{args.epochs}]'
-    for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(train_loader, 10, header)):
+    for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(train_loader, 100, header)):
         if mixup_fn is not None:
+            original_targets = targets.to(device, non_blocking=True)
             samples, targets = mixup_fn(samples, targets)
             
         samples = samples.to(device, non_blocking=True)
@@ -24,6 +25,10 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
             student_logits, student_feats = student_model(samples)
 
         loss = criterion(samples, student_logits, student_feats, targets)
+        if mixup_fn is not None:
+            acc1, acc5 = accuracy(student_logits, original_targets, topk=(1, 5))
+        else:
+            acc1, acc5 = accuracy(student_logits, targets, topk=(1, 5))
         
         optimizer.zero_grad()
         loss.backward()
@@ -38,17 +43,19 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
         
         batch_size = samples.shape[0]
         metric_logger.update(train_loss=loss.item())
+        metric_logger.update(train_acc1=acc1.item())
+        metric_logger.update(train_acc5=acc5.item())
         metric_logger.update(train_lr=scheduler.get_lr())
         
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 @torch.no_grad()
-def validate(student_model, val_loader, criterion, device, config, args):
+def validate(student_model, val_loader, criterion, device):
     student_model.eval()
     metric_logger = MetricLogger()
 
-    header = 'Test:'
-    for samples, targets in metric_logger.log_every(val_loader, 10, header):
+    header = 'Val:'
+    for samples, targets in metric_logger.log_every(val_loader, 100, header):
         samples = samples.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
 
@@ -79,7 +86,7 @@ def evaluate(model, val_loader, criterion, device, args):
         
         # Forward
         with torch.cuda.amp.autocast(enabled=True):
-            outputs = model(samples)
+            outputs, features = model(samples)
             loss = criterion(outputs, targets)
         
         # Measure accuracy

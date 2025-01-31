@@ -1,0 +1,15 @@
+python tools/train.py \
+    --student_model deit_tiny_patch16_224 \
+    --teacher_model deit_small_patch16_224 \
+    --dataset cifar-10 \
+    --epochs 100 \
+    --batch_size 128 \
+    --lr 0.001 \
+    --weight_decay 0.0001 \
+    --opt adamw \
+    --drop_path_rate 0.1 \
+    --distillation_type none \
+    --alpha 0.0 \
+    --tau 0.0 \
+    --log_file logs/baseline-deit-tiny.log \
+    --save_dir checkpoints/baseline-deit-tiny

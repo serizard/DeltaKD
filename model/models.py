@@ -13,12 +13,28 @@ class VisionModelWrapper(nn.Module):
         model_name: str,
         pretrained: bool = True,
         drop_path_rate: float = 0.1,
+        args: Optional[Dict] = None,
     ):
         super().__init__()
-        self.model = timm.create_model(model_name, pretrained=pretrained, drop_path_rate=drop_path_rate)
+
+        self.num_classes = self.num_classes(args)
+        self.model = timm.create_model(model_name, pretrained=pretrained, drop_path_rate=drop_path_rate, num_classes=self.num_classes)
         self.features = {}
         self._register_hooks()
-        
+
+        if 'deit' in model_name and args.distillation_type in ['soft', 'hard']:
+            self.model.set_distilled_training(enable=True)
+    
+    def num_classes(self, args):
+        if args.dataset == 'cifar-10':
+            return 10
+        elif args.dataset == 'cifar-100':
+            return 100
+        elif args.dataset == 'imagenet':
+            return 1000
+        else:
+            raise ValueError(f"Unknown dataset: {args.dataset}")
+
     def freeze_model(self):
         for param in self.model.parameters():
             param.requires_grad = False
@@ -114,7 +130,10 @@ class VisionModelWrapper(nn.Module):
     #     return stats
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.model(x)
+        output = self.model(x)
+        features = self.features
+
+        return output, features
 
     def train(self, mode: bool = True):
         super().train(mode)

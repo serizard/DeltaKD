@@ -1,6 +1,7 @@
 import torch
-from timm.loss import LabelSmoothingCrossEntropy
+# from timm.loss import LabelSmoothingCrossEntropy
 import torch.nn.functional as F
+import torch.nn as nn
 
 class DistillationLoss(torch.nn.Module):
     def __init__(self, base_criterion: torch.nn.Module, teacher_model: torch.nn.Module,
@@ -8,7 +9,6 @@ class DistillationLoss(torch.nn.Module):
         super().__init__()
         self.base_criterion = base_criterion
         self.teacher_model = teacher_model
-        assert distillation_type in ['none', 'soft', 'hard']
         self.distillation_type = distillation_type
         self.alpha = alpha
         self.tau = tau
@@ -18,11 +18,12 @@ class DistillationLoss(torch.nn.Module):
         if not isinstance(outputs, torch.Tensor):
             # assume that the model outputs a tuple of [outputs, outputs_kd]
             outputs, outputs_kd = outputs
+
         base_loss = self.base_criterion(outputs, labels)
         if self.distillation_type == 'none':
             return base_loss
 
-        if outputs_kd is None:
+        if outputs_kd is None and self.distillation_type in ['soft', 'hard']:
             raise ValueError("When knowledge distillation is enabled, the model is "
                              "expected to return a Tuple[Tensor, Tensor] with the output of the "
                              "class_token and the dist_token")
@@ -57,8 +58,8 @@ class DistillationLoss(torch.nn.Module):
 
 def call_base_loss(args):
     if args.dataset in ['cifar-100', 'cifar-10']:
-        return LabelSmoothingCrossEntropy(smoothing=args.label_smoothing)
+        return nn.CrossEntropyLoss()
     elif args.dataset in ['imagenet-1k', 'imagenet-21k']:
-        return LabelSmoothingCrossEntropy(smoothing=args.label_smoothing)
+        return nn.CrossEntropyLoss()
     else:
         raise ValueError(f"Unsupported dataset: {args.dataset}. Supported datasets are {['cifar-100', 'cifar-10', 'imagenet-1k', 'imagenet-21k']}")
