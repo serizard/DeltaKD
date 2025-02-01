@@ -175,7 +175,7 @@ def main():
                                         epoch = epoch,
                                         args = args)
         val_metrics = validate(student_model, val_loader, criterion_distillation, device, args)
-        if args.wandb:
+        if args.wandb and wandb.run is not None:
             wandb.log(train_metrics, step=epoch)
             wandb.log(val_metrics, step=epoch)
 
