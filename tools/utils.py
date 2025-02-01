@@ -5,6 +5,14 @@ import numpy as np
 import random
 import shutil
 
+def remove_module_prefix(state_dict): # resume할 때.
+    new_state_dict = {}
+    for key, value in state_dict.items():
+        # 키가 "module."로 시작하면 제거
+        new_key = key[7:] if key.startswith("module.") else key
+        new_state_dict[new_key] = value
+    return new_state_dict
+    
 def setup_distributed(args):
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         args.rank = int(os.environ["RANK"])
