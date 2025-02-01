@@ -5,13 +5,14 @@ import argparse
 from logs.logger import setup_logger
 import torch
 import wandb
+import os
 from dataset.datasets import DatasetBuilder
 from schedules import OptimizerFactory, Scheduler
 from timm.utils import ModelEma
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 from utils import setup_distributed, setup_device, seed_everything
-from engine import train_one_epoch, evaluate, validate
+from engine import train_one_epoch, validate
 from utils import save_checkpoint, remove_module_prefix
 
 
@@ -104,8 +105,12 @@ def main():
     student_model = VisionModelWrapper(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate, args=args)
     teacher_model = teacher_model.freeze_model()
 
+    logger = setup_logger(args.log_file)
+    logger.info(f"Training started with {args.teacher_model} as teacher and {args.student_model} as student")
+
     if args.wandb and dist.get_rank() == 0: 
-         wandb.init(project=args.wandb_project, config=args, name="experiment_name")
+        logger.info("Wandb init")
+        wandb.init(project=args.wandb_project, config=args, name="baseline_deit")
 
     dataset_builder = DatasetBuilder(args)
     train_loader, train_sampler = dataset_builder.build_loader(is_train=True)
@@ -151,11 +156,10 @@ def main():
     else:
         student_model = student_model.to(device)
         teacher_model = teacher_model.to(device)
-
-    logger = setup_logger(args.log_file)
-    logger.info(f"Training started with {args.teacher_model} as teacher and {args.student_model} as student")
-
     best_val_acc = 0.0 
+
+    if not os.path.exists(args.save_dir):
+        os.makedirs(args.save_dir, exist_ok=True)
 
     for epoch in range(start_epoch, args.epochs):
         train_metrics = train_one_epoch(student_model = student_model,
@@ -172,9 +176,8 @@ def main():
                                         args = args)
         val_metrics = validate(student_model, val_loader, criterion_distillation, device, args)
         if args.wandb:
-            if wandb.run is not None:  # Ensure wandb.init() has been called
-                wandb.log(train_metrics, step=epoch)
-                wandb.log(val_metrics, step=epoch)
+            wandb.log(train_metrics, step=epoch)
+            wandb.log(val_metrics, step=epoch)
 
         logger.info(f"Epoch {epoch} - Train: {train_metrics} - Val: {val_metrics}")
         

@@ -2,7 +2,7 @@ import torch
 # from timm.loss import LabelSmoothingCrossEntropy
 import torch.nn.functional as F
 import torch.nn as nn
-from dist_loss import ViTKDLoss
+from model.dist_loss import ViTKDLoss
 
 """
 !!student & teacher model 간의 관계!!

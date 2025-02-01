@@ -67,20 +67,6 @@ class DatasetBuilder:
             split = 'train' if is_train else 'val'
             root = os.path.join(self.args.data_path, split)
             dataset = datasets.ImageFolder(root=root, transform=transform)
-        
-        # is_distributed = dist.is_initialized()
-        # if is_train and is_distributed:
-        #     rank = dist.get_rank()
-        #     world_size = dist.get_world_size()
-        #     total_size = len(dataset)
-        #     indices = list(range(total_size))
-        #     num_samples = total_size // world_size 
-        #     start_index = num_samples * rank
-        #     end_index = start_index + num_samples
-        #     indices = indices[start_index:end_index] 
-        #     dataset = torch.utils.data.Subset(dataset, indices) 
-
-            
         return dataset
 
     def build_loader(self, is_train=True):
