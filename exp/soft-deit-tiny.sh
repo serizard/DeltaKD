@@ -9,10 +9,10 @@ fi
 
 NUM_GPUS=$(echo $GPU_IDS | tr ',' '\n' | wc -l)
 
-# baseline은 distillation 없이 CLS 토큰만 사용
+# soft distillation은 student model에 distillation 토큰이 필요
 CUDA_VISIBLE_DEVICES=$GPU_IDS torchrun --nproc_per_node=$NUM_GPUS tools/train.py \
-    --student_model deit_tiny_patch16_224 \ 
-    --teacher_model deit_small_distilled_patch16_224 \ 
+    --student_model deit_tiny_distilled_patch16_224 \
+    --teacher_model deit_small_distilled_patch16_224 \
     --dataset imagenet-1k \
     --data_path /root/datasets/imagenet \
     --epochs 300 \
@@ -22,9 +22,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS torchrun --nproc_per_node=$NUM_GPUS tools/train.py
     --weight_decay 0.05 \
     --opt adamw \
     --drop_path_rate 0.1 \
-    --distillation_type none \
+    --distillation_type soft \
     --log_file logs/baseline-deit-tiny.log \
     --save_dir checkpoints/baseline-deit-tiny \
     --amp \
-    --wandb \
-    --wandb_project AAAKD
+    # --wandb \
+    # --wandb_project AAAKD

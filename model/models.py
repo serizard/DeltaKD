@@ -1,4 +1,3 @@
-from timm.models import create_model
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -17,18 +16,14 @@ class VisionModelWrapper(nn.Module):
     ):
         super().__init__()
 
-        if 'deit' in model_name and args.distillation_type in ['soft', 'hard']:
-            self.model = timm.create_model(model_name, 
-                                        pretrained=pretrained, 
-                                        drop_path_rate=drop_path_rate, 
-                                        num_classes=self.num_classes(args),
-                                        distilled=True)
+        self.model = timm.create_model(model_name, 
+                                    pretrained=pretrained, 
+                                    drop_path_rate=drop_path_rate, 
+                                    num_classes=self.num_classes(args))
+
+        if 'deit' in model_name and pretrained==False and args.distillation_type in ['soft', 'hard']:
             self.model.set_distilled_training(enable=True)
-        else:
-            self.model = timm.create_model(model_name, 
-                                        pretrained=pretrained, 
-                                        drop_path_rate=drop_path_rate, 
-                                        num_classes=self.num_classes(args))
+
         self.features = {}
         self._register_hooks()
     
