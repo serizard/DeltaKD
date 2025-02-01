@@ -104,14 +104,8 @@ def main():
     student_model = VisionModelWrapper(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate, args=args)
     teacher_model = teacher_model.freeze_model()
 
-    # if args.wandb and args.rank == 0: 
-    #      wandb.init(project=args.wandb_project, config=args)
-
-    student_model.to(device)
-    teacher_model.to(device)
-    
-    if dist.get_rank() == 0:  # Only initialize wandb for rank 0
-        wandb.init(project="AAAKD", name="experiment_name")
+    if args.wandb and dist.get_rank() == 0: 
+         wandb.init(project=args.wandb_project, config=args, name="experiment_name")
 
     dataset_builder = DatasetBuilder(args)
     train_loader, train_sampler = dataset_builder.build_loader(is_train=True)

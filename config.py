@@ -28,7 +28,7 @@ class Config:
     randaug_magnitude = 0.5
     switch_prob = 0.5
     mixup_prob = 1.0
-    num_workers = cpu_count()
+    num_workers = 10
     warmup_epochs = 5
     label_smoothing = 0.1
     drop_path_rate = 0.1
