@@ -12,7 +12,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 from utils import setup_distributed, setup_device, seed_everything
 from engine import train_one_epoch, evaluate, validate
-from utils import save_checkpoint
+from utils import save_checkpoint, remove_module_prefix
 
 
 
@@ -42,6 +42,15 @@ def parse_args():
     train_group.add_argument('--label_smoothing', type=float, default=Config.label_smoothing)
     train_group.add_argument('--ema_decay', type=float, default=None)
 
+    # Distributed training
+    dist_group = parser.add_argument_group('Distributed')
+    dist_group.add_argument('--gpus', type=str, default=None,
+                            help='Comma-separated list of GPU indices to use for distributed training. '
+                                 'If not specified, defaults to using all available GPUs or CPU if no GPUs are available.')
+    dist_group.add_argument('--dist_url', default='env://',
+                            help='url used to set up distributed training')
+
+
     # Distillation
     distill_group = parser.add_argument_group('Distillation')
     distill_group.add_argument('--distillation_type', type=str, choices=['none', 'soft', 'hard', 'vitkd', 'aaakd', 'vitkd_w_logit', 'aaakd_w_logit'], default='none',
@@ -57,10 +66,14 @@ def parse_args():
     log_group.add_argument('--save_dir', type=str, default='checkpoints')
     log_group.add_argument('--wandb', action='store_true', 
                           help='Use Weights & Biases logging')
+    log_group.add_argument('--wandb_project', type=str, default='distill-vit',
+                          help='Weights & Biases project name')
     
     # Data
     data_group = parser.add_argument_group('Data')
     data_group.add_argument('--data_path', type=str, default='dataset')
+    data_group.add_argument('--dataset', type=str, default='imagenet-1k',
+                           help='Dataset to use for training')
     
     # Miscellaneous settings
     misc_group = parser.add_argument_group('Miscellaneous')
@@ -70,11 +83,8 @@ def parse_args():
                            help='Path to checkpoint file')
     misc_group.add_argument('--seed', type=int, default=42,
                            help='Random seed for reproducibility')
-    misc_group.add_argument('--device', type=str, 
-                           default='cuda' if torch.cuda.is_available() else 'cpu',
+    misc_group.add_argument('--device', type=str, default=None,
                            help='Device to use for training')
-    misc_group.add_argument('--dataset', type=str, default='cifar-10',
-                           help='Dataset to use for training')
     misc_group.add_argument('--mixup', action='store_true', default=True,
                            help='Use Mixup data augmentation')
     
@@ -83,18 +93,25 @@ def parse_args():
 
 def main():
     args = parse_args()
-    print(args)
-
     setup_distributed(args)
     device = setup_device(args) 
     seed_everything(args.seed)
+
+    if args.rank == 0: 
+        print(args)
 
     teacher_model = VisionModelWrapper(args.teacher_model, pretrained=True, drop_path_rate=args.drop_path_rate, args=args)
     student_model = VisionModelWrapper(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate, args=args)
     teacher_model = teacher_model.freeze_model()
 
-    if args.wandb:
-        wandb.init(project='distill-vit', config=args)
+    # if args.wandb and args.rank == 0: 
+    #      wandb.init(project=args.wandb_project, config=args)
+
+    student_model.to(device)
+    teacher_model.to(device)
+    
+    if dist.get_rank() == 0:  # Only initialize wandb for rank 0
+        wandb.init(project="AAAKD", name="experiment_name")
 
     dataset_builder = DatasetBuilder(args)
     train_loader, train_sampler = dataset_builder.build_loader(is_train=True)
@@ -110,10 +127,13 @@ def main():
 
     if args.resume:
         checkpoint = torch.load(args.checkpoint)
-        student_model.load_state_dict(checkpoint['model_state_dict'])
+        state_dict = checkpoint['model_state_dict']
+        # "module." 접두사 제거 => key 맞추기
+        state_dict = remove_module_prefix(state_dict)
+        student_model.load_state_dict(state_dict)
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        # if 'scaler_state_dict' in checkpoint:
-        #     grad_scaler.load_state_dict(checkpoint['scaler_state_dict'])
+        if grad_scaler is not None and 'scaler_state_dict' in checkpoint:
+            grad_scaler.load_state_dict(checkpoint['scaler_state_dict'])
         start_epoch = checkpoint['epoch']
     else:
         start_epoch = 0
@@ -129,15 +149,19 @@ def main():
     else:
         model_ema = None
 
+    student_model.to(device)
+    teacher_model.to(device)
     if args.distributed:
-        student_model = DDP(student_model, device_ids=[args.gpu], output_device=args.gpu, find_unused_parameters=True)
-        teacher_model = DDP(teacher_model, device_ids=[args.gpu], output_device=args.gpu, find_unused_parameters=True)
+        student_model = DDP(student_model, device_ids=[args.gpu], output_device=args.gpu, find_unused_parameters=False)
+        # teacher_model = DDP(teacher_model, device_ids=[args.gpu], output_device=args.gpu, find_unused_parameters=True)
     else:
         student_model = student_model.to(device)
         teacher_model = teacher_model.to(device)
 
-    logger = setup_logger('train.log')
+    logger = setup_logger(args.log_file)
     logger.info(f"Training started with {args.teacher_model} as teacher and {args.student_model} as student")
+
+    best_val_acc = 0.0 
 
     for epoch in range(start_epoch, args.epochs):
         train_metrics = train_one_epoch(student_model = student_model,
@@ -152,15 +176,30 @@ def main():
                                         device = device,
                                         epoch = epoch,
                                         args = args)
-        val_metrics = validate(student_model, val_loader, criterion_distillation, device)
+        val_metrics = validate(student_model, val_loader, criterion_distillation, device, args)
         if args.wandb:
-            wandb.log(train_metrics, step=epoch)
-            wandb.log(val_metrics, step=epoch)
+            if wandb.run is not None:  # Ensure wandb.init() has been called
+                wandb.log(train_metrics, step=epoch)
+                wandb.log(val_metrics, step=epoch)
 
         logger.info(f"Epoch {epoch} - Train: {train_metrics} - Val: {val_metrics}")
-
-        if args.save_dir:
-            save_checkpoint(student_model, optimizer, epoch, args)
+        
+        is_best = False
+        current_val_acc = val_metrics.get('val_acc1', 0.0)
+        print(f"Current val acc: {current_val_acc}")
+        if current_val_acc > best_val_acc:
+            best_val_acc = current_val_acc
+            is_best = True
+        
+        # if epoch % 10 == 0:  
+        if not args.distributed or (args.distributed and args.rank == 0):
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'model_state_dict': student_model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scaler_state_dict': grad_scaler.state_dict() if grad_scaler is not None else None,
+            }, is_best=is_best, filename=f'{args.save_dir}/checkpoint.pth') 
+            # 더 나은 파일 이름 있으면 그걸로 변경 및 tools/utils.py save_checkpoint 함수 수정할 거 있으면 같이 수정.
 
     logger.info("Training completed")
     logger.info("Final validation metrics:")
