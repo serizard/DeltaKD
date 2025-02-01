@@ -2,17 +2,7 @@ import torch
 # from timm.loss import LabelSmoothingCrossEntropy
 import torch.nn.functional as F
 import torch.nn as nn
-from dist_loss import ViTKDLoss
 
-"""
-!!student & teacher model 간의 관계!!
-
-각 layer 별 token 수는 동일해야 함.
-임베딩 사이즈는 달라도 됨. 어차피 projection 이용해서 맞추면 되는 일.
-layer 수는 동일한 것이 좋지만 아니어도 대처는 가능하지 않을까.
-(ViT-T, S, B 모두 layer 12개, Large만 24개)
-
-"""
 class DistillationLoss(torch.nn.Module):
     def __init__(self, base_criterion: torch.nn.Module, teacher_model: torch.nn.Module,
                  distillation_type: str, alpha: float, tau: float):
@@ -39,16 +29,8 @@ class DistillationLoss(torch.nn.Module):
                              "class_token and the dist_token")
         # don't backprop throught the teacher
         with torch.no_grad():
-            # teacher feature 같은 경우에는 원하는 layer의 output 저장. 
-            # layer 같은 경우에는 사전에 지정할 수 있음.
             teacher_logits, teacher_features = self.teacher_model(inputs)
 
-        """ 
-
-        student_features, teacher_features 예상 format
-        : [batch_size, num_tokens, embed_dim]
-
-        """
         if self.distillation_type == 'soft':
             T = self.tau
             distillation_loss = F.kl_div(
@@ -60,14 +42,7 @@ class DistillationLoss(torch.nn.Module):
         elif self.distillation_type == 'hard':
             distillation_loss = F.cross_entropy(outputs_kd, teacher_logits.argmax(dim=1))
         elif self.distillation_type == 'ViTKD':
-            ViTKD_loss = ViTKDLoss(student__dims=student_features.shape[-1], teacher_dims=teacher_features.shape[-1])
-            """Forward function.
-            Args:
-                preds_S(List): [B*2*N*D, B*N*D], student's feature map
-                preds_T(List): [B*2*N*D, B*N*D], teacher's feature map
-            """
-            # 기본 teacher_features format 보고 맞춰야함.
-            distillation_loss = ViTKD_loss(student_features, teacher_features)
+            pass
         elif self.distillation_type == 'AAAKD':
             pass
         elif self.distillation_type == 'TokenKD':
