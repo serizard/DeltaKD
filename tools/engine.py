@@ -60,7 +60,7 @@ def validate(student_model, val_loader, device, args):
         with torch.cuda.amp.autocast(enabled=True):
             student_logits, student_feats = student_model(samples)
 
-        loss = criterion(samples, student_logits, student_feats, targets)
+        loss = criterion(student_logits, targets)
 
         acc1, acc5 = accuracy(student_logits, targets, topk=(1, 5))
 
