@@ -25,6 +25,10 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
             student_logits, student_feats = student_model(samples)
 
         loss = criterion(samples, student_logits, student_feats, targets)
+        
+        if not isinstance(student_logits, torch.Tensor):
+            student_logits, _ = student_logits
+        
         if mixup_fn is not None:
             acc1, acc5 = accuracy(student_logits, original_targets, topk=(1, 5))
         else:
@@ -59,6 +63,9 @@ def validate(student_model, val_loader, device, args):
 
         with torch.cuda.amp.autocast(enabled=True):
             student_logits, student_feats = student_model(samples)
+
+        if not isinstance(student_logits, torch.Tensor):
+            student_logits, _ = student_logits
 
         loss = criterion(student_logits, targets)
 
