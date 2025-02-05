@@ -5,6 +5,7 @@ import torch
 import torch.distributed as dist
 from collections import defaultdict, deque
 import sys
+import os
 
 def setup_logger(log_file):
     rank = 0 
@@ -165,3 +166,12 @@ def is_dist_avail_and_initialized():
     if not dist.is_initialized():
         return False
     return True
+
+def get_unique_log_file_path(log_file_path):
+    base, ext = os.path.splitext(log_file_path)
+    counter = 0
+    unique_path = log_file_path
+    while os.path.exists(unique_path):
+        counter += 1
+        unique_path = f"{base}_{counter}{ext}"
+    return unique_path
