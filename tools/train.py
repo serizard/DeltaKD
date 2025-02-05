@@ -1,13 +1,14 @@
 from model.models import VisionModelWrapper
 from model.loss import DistillationLoss, call_base_loss
 import argparse
-from logs.logger import setup_logger, get_unique_log_file_path
+from logs.logger import setup_logger, get_timestamped_log_file_path
 import torch
 import wandb
 import os
 from timm.data import Mixup
 from dataset.datasets import DatasetBuilder
-from tools.opt_sched import OptimizerFactory, Scheduler
+from timm.scheduler import create_scheduler
+from timm.optim import create_optimizer
 from timm.utils import ModelEma
 from torch.nn.parallel import DistributedDataParallel as DDP
 from utils import setup_distributed, setup_device, seed_everything
@@ -196,9 +197,7 @@ def main():
     student_model = VisionModelWrapper(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate, args=args)
     teacher_model = teacher_model.freeze_model()
 
-    if os.path.exists(args.log_file):
-        args.log_file = get_unique_log_file_path(args.log_file)
-    logger = setup_logger(args.log_file)
+    logger = setup_logger(get_timestamped_log_file_path(args.log_file))
     logger.info(f"Training started with {args.teacher_model} as teacher and {args.student_model} as student")
 
     if args.wandb and (not args.distributed or args.rank == 0):
@@ -212,8 +211,8 @@ def main():
     if args.ThreeAugment:
         train_loader.dataset.transform = new_data_aug_generator(args)
 
-    optimizer = OptimizerFactory.create_optimizer(student_model, args)
-    scheduler = Scheduler(optimizer, args)
+    optimizer = create_optimizer(args, student_model)
+    scheduler, _ = create_scheduler(args, optimizer)
     # grad_scaler = ScaledGradNorm(args)
     grad_scaler = None
 
@@ -272,13 +271,13 @@ def main():
                                         train_loader = train_loader,
                                         criterion = criterion_distillation,
                                         optimizer = optimizer,
-                                        scheduler = scheduler,
                                         grad_scaler = grad_scaler,
                                         mixup_fn = mixup_fn,
                                         model_ema = model_ema,
                                         device = device,
                                         epoch = epoch,
                                         args = args)
+        scheduler.step(epoch)
         val_metrics = validate(student_model, val_loader, criterion_distillation, device, args)
         if args.wandb and wandb.run is not None:
             wandb.log(train_metrics, step=epoch)

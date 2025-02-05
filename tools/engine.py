@@ -4,7 +4,7 @@ from timm.utils import accuracy, ModelEma
 import torch.nn as nn
 
 
-def train_one_epoch(student_model, teacher_model, train_loader, criterion, optimizer, scheduler, grad_scaler, mixup_fn, model_ema, device, epoch, args):
+def train_one_epoch(student_model, teacher_model, train_loader, criterion, optimizer, grad_scaler, mixup_fn, model_ema, device, epoch, args):
     student_model.train()
     teacher_model.eval()
     metric_logger = MetricLogger()
@@ -42,9 +42,7 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
         metric_logger.update(train_loss=loss.item())
         metric_logger.update(train_acc1=acc1.item())
         metric_logger.update(train_acc5=acc5.item())
-        metric_logger.update(train_lr=scheduler.get_lr())
-
-    scheduler.step(epoch)
+        metric_logger.update(train_lr=optimizer.param_groups[0]['lr'])
         
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
