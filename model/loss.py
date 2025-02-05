@@ -1,5 +1,5 @@
 import torch
-# from timm.loss import LabelSmoothingCrossEntropy
+from timm.loss import SoftTargetCrossEntropy, LabelSmoothingCrossEntropy
 import torch.nn.functional as F
 import torch.nn as nn
 from model.dist_loss import ViTKDLoss
@@ -82,9 +82,11 @@ class DistillationLoss(torch.nn.Module):
 
 
 def call_base_loss(args):
-    if args.dataset in ['cifar-100', 'cifar-10']:
-        return nn.CrossEntropyLoss()
-    elif args.dataset in ['imagenet-1k', 'imagenet-21k']:
-        return nn.CrossEntropyLoss()
+    mixup_active = args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax
+    if mixup_active:
+        return SoftTargetCrossEntropy()
     else:
-        raise ValueError(f"Unsupported dataset: {args.dataset}. Supported datasets are {['cifar-100', 'cifar-10', 'imagenet-1k', 'imagenet-21k']}")
+        return LabelSmoothingCrossEntropy(smoothing=args.smoothing)
+
+
+from timm.scheduler import create_scheduler

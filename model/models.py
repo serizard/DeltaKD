@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from typing import List, Dict, Optional
 from functools import partial
 import timm
+from dataset.datasets import DATASET_STATS
 
 
 class VisionModelWrapper(nn.Module):
@@ -19,25 +20,13 @@ class VisionModelWrapper(nn.Module):
         self.model = timm.create_model(model_name, 
                                     pretrained=pretrained, 
                                     drop_path_rate=drop_path_rate, 
-                                    num_classes=self.num_classes(args))
+                                    num_classes=DATASET_STATS[args.dataset]['num_classes'])
 
         if 'deit' in model_name and pretrained==False and args.distillation_type in ['soft', 'hard']:
             self.model.set_distilled_training(enable=True)
 
         self.features = {}
         self._register_hooks()
-    
-    def num_classes(self, args):
-        if args.dataset == 'cifar-10':
-            return 10
-        elif args.dataset == 'cifar-100':
-            return 100
-        elif args.dataset == 'imagenet-1k':
-            return 1000
-        elif args.dataset == 'imagenet-21k':
-            return 21841
-        else:
-            raise ValueError(f"Unknown dataset: {args.dataset}")
 
     def freeze_model(self):
         for param in self.model.parameters():
