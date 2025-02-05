@@ -102,9 +102,9 @@ def parse_args():
                         choices=['none', 'soft', 'hard', 'vitkd', 'aaakd', 'vitkd_w_logit', 'aaakd_w_logit'], 
                         default='none',
                         help='Type of knowledge distillation to use')
-    parser.add_argument('--alpha', type=float, default=0.5,
+    parser.add_argument('--alpha', type=float, default=0.1,
                         help='Weight factor for distillation loss')
-    parser.add_argument('--tau', type=float, default=1.0,
+    parser.add_argument('--tau', type=float, default=3.0,
                         help='Temperature parameter for distillation')
     
     # Saving and logging
@@ -197,12 +197,13 @@ def main():
     student_model = VisionModelWrapper(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate, args=args)
     teacher_model = teacher_model.freeze_model()
 
-    logger = setup_logger(get_timestamped_log_file_path(args.log_file))
+    args.log_file = get_timestamped_log_file_path(args.log_file)
+    logger = setup_logger(args.log_file)
     logger.info(f"Training started with {args.teacher_model} as teacher and {args.student_model} as student")
 
     if args.wandb and (not args.distributed or args.rank == 0):
         logger.info("Wandb init")
-        wandb.init(project=args.wandb_project, config=args, name="baseline_deit")
+        wandb.init(project=args.wandb_project, config=args, name=args.log_file.replace('.log', ''))
 
     dataset_builder = DatasetBuilder(args)
     train_loader = dataset_builder.build_loader(is_train=True)
