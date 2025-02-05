@@ -21,6 +21,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS torchrun --nproc_per_node=$NUM_GPUS --master_port 
     --batch-size 256 \
     --lr 3e-4 \
     --weight-decay 1e-4 \
+    --alpha 0.1 \
+    --tau 3.0 \
     --gpus $GPU_IDS \
     --distillation-type hard \
     --log-file logs/hard-deit-tiny-cifar100.log \
