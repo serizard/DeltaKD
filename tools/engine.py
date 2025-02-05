@@ -47,7 +47,8 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 @torch.no_grad()
-def validate(student_model, val_loader, criterion, device, args):
+def validate(student_model, val_loader, device, args):
+    criterion = torch.nn.CrossEntropyLoss()
     student_model.eval()
     metric_logger = MetricLogger()
 
@@ -63,7 +64,6 @@ def validate(student_model, val_loader, criterion, device, args):
 
         acc1, acc5 = accuracy(student_logits, targets, topk=(1, 5))
 
-        batch_size = samples.shape[0]
         metric_logger.update(val_loss=loss.item())
         metric_logger.update(val_acc1=acc1.item())
         metric_logger.update(val_acc5=acc5.item())

@@ -278,7 +278,7 @@ def main():
                                         epoch = epoch,
                                         args = args)
         scheduler.step(epoch)
-        val_metrics = validate(student_model, val_loader, criterion_distillation, device, args)
+        val_metrics = validate(student_model, val_loader, device, args)
         if args.wandb and wandb.run is not None:
             wandb.log(train_metrics, step=epoch)
             wandb.log(val_metrics, step=epoch)
