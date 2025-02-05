@@ -9,22 +9,19 @@ fi
 
 NUM_GPUS=$(echo $GPU_IDS | tr ',' '\n' | wc -l)
 
-# baseline은 distillation 없이 CLS 토큰만 사용
+
 CUDA_VISIBLE_DEVICES=$GPU_IDS torchrun --nproc_per_node=$NUM_GPUS tools/train.py \
-    --student_model deit_tiny_patch16_224 \ 
-    --teacher_model deit_small_distilled_patch16_224 \ 
-    --dataset imagenet-1k \
-    --data_path /root/datasets/imagenet \
+    --student-model deit_tiny_patch16_224 \
+    --teacher-model deit_small_distilled_patch16_224 \
+    --dataset cifar-100 \
+    --data-path /root/workspace/AAAKD/dataset \
     --epochs 300 \
-    --batch_size 1024 \
-    --lr 5e-4 \
+    --batch-size 256 \
+    --lr 3e-4 \
+    --weight-decay 1e-4 \
     --gpus $GPU_IDS \
-    --weight_decay 0.05 \
-    --opt adamw \
-    --drop_path_rate 0.1 \
-    --distillation_type none \
-    --log_file logs/baseline-deit-tiny.log \
-    --save_dir checkpoints/baseline-deit-tiny \
-    --amp \
+    --distillation-type none \
+    --log-file logs/baseline-deit-tiny-cifar100.log \
+    --save-dir checkpoints/baseline-deit-tiny-cifar100 \
     --wandb \
-    --wandb_project AAAKD
+    --wandb-project AAAKD

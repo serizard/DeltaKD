@@ -20,8 +20,8 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS torchrun --nproc_per_node=$NUM_GPUS tools/train.py
     --lr 3e-4 \
     --weight-decay 1e-4 \
     --gpus $GPU_IDS \
-    --distillation-type soft \
-    --log-file logs/soft-deit-tiny-cifar100.log \
-    --save-dir checkpoints/soft-deit-tiny-cifar100 \
+    --distillation-type hard \
+    --log-file logs/hard-deit-tiny-cifar100.log \
+    --save-dir checkpoints/hard-deit-tiny-cifar100 \
     --wandb \
     --wandb-project AAAKD
