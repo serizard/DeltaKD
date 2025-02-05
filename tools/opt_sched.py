@@ -1,24 +1,11 @@
-import math
-import torch
-from timm.scheduler import CosineLRScheduler
+from timm.scheduler import create_scheduler
+from timm.optim import create_optimizer
 
 class Scheduler:
     def __init__(self, optimizer, args):
         self.args = args
         self.optimizer = optimizer
-        self.base_lr = args.lr * args.batch_size / 512.0  # Learning rate scaling
-        self._create_scheduler()
-
-    def _create_scheduler(self):
-        self.lr_scheduler = CosineLRScheduler(
-            self.optimizer,
-            t_initial=self.args.epochs,
-            lr_min=1e-5,
-            warmup_lr_init=0.0,
-            warmup_t=self.args.warmup_epochs,
-            cycle_limit=1,
-            t_in_epochs=True,
-        )
+        self.lr_scheduler = create_scheduler(self.args, self.optimizer)
 
     def step(self, epoch, metric=None):
         self.lr_scheduler.step(epoch)
@@ -30,26 +17,7 @@ class OptimizerFactory:
     @staticmethod
     def create_optimizer(model, args):
         # Parameter groups
-        param_groups = OptimizerFactory._get_parameter_groups(model)
-        
-        if args.opt.lower() == 'adamw':
-            optimizer = torch.optim.AdamW(
-                param_groups,
-                lr=args.lr,
-                betas=(0.9, 0.999),
-                eps=1e-8,
-                weight_decay=args.weight_decay
-            )
-        elif args.opt.lower() == 'sgd':
-            optimizer = torch.optim.SGD(
-                param_groups,
-                lr=args.lr,
-                momentum=0.9,
-                weight_decay=args.weight_decay
-            )
-        else:
-            raise ValueError(f"Unsupported optimizer: {args.opt}")
-            
+        optimizer = create_optimizer(args, model)
         return optimizer
 
     @staticmethod
