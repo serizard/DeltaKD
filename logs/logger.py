@@ -167,11 +167,7 @@ def is_dist_avail_and_initialized():
         return False
     return True
 
-def get_unique_log_file_path(log_file_path):
-    base, ext = os.path.splitext(log_file_path)
-    counter = 0
-    unique_path = log_file_path
-    while os.path.exists(unique_path):
-        counter += 1
-        unique_path = f"{base}_{counter}{ext}"
-    return unique_path
+def get_timestamped_log_file_path(log_file_path):
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file_path = f"{log_file_path}_{timestamp}"
+    return log_file_path
