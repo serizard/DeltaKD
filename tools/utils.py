@@ -9,11 +9,15 @@ import datetime
 def remove_module_prefix(state_dict): # resume할 때.
     new_state_dict = {}
     for key, value in state_dict.items():
-        # 키가 "module."로 시작하면 제거
         new_key = key[7:] if key.startswith("module.") else key
         new_state_dict[new_key] = value
     return new_state_dict
-    
+
+def get_model_state(model):
+    if hasattr(model, 'module'):
+        return model.module.state_dict()
+    return model.state_dict()
+
 def setup_distributed(args):
     args.distributed = False
     if 'WORLD_SIZE' in os.environ:
@@ -22,12 +26,11 @@ def setup_distributed(args):
             args.rank = int(os.environ['RANK'])
             args.gpu = int(os.environ['LOCAL_RANK'])
             args.distributed = True
-        else:
+        else:     
             args.distributed = False
             args.rank = 0
             args.gpu = 0
-    elif args.gpus is not None: # 사용자 지정 GPU가 있을 때 (torchrun 미사용)
-    # Legacy multi-GPU using CUDA_VISIBLE_DEVICES, single node only
+    elif args.gpus is not None: 
         gpu_list = [int(gpu) for gpu in args.gpus.split(',')]
         num_gpus = len(gpu_list)
         if num_gpus > 1:
@@ -40,7 +43,6 @@ def setup_distributed(args):
             args.distributed = False
             args.gpu = gpu_list[0] if gpu_list else 0
     else:
-        print('Not using distributed mode')
         args.distributed = False
         args.rank = 0
         args.gpu = 0
@@ -57,6 +59,8 @@ def setup_distributed(args):
             timeout=datetime.timedelta(0, 1800),
         )
         dist.barrier()
+    else:
+        print('Not using distributed mode')
 
 
 def setup_device(args):
@@ -89,11 +93,12 @@ def save_checkpoint(state, is_best, filename):
 
 def load_checkpoint(model, optimizer, scheduler, scaler, filename):
     checkpoint = torch.load(filename, map_location='cpu')
+    epoch = checkpoint['epoch']
     model.load_state_dict(checkpoint['model'])
     optimizer.load_state_dict(checkpoint['optimizer'])
     scheduler.load_state_dict(checkpoint['scheduler'])
     scaler.load_state_dict(checkpoint['scaler'])
-    return model, optimizer, scheduler, scaler
+    return epoch, model, optimizer, scheduler, scaler
 
 
 def load_model(model, filename):
@@ -101,3 +106,32 @@ def load_model(model, filename):
     model.load_state_dict(checkpoint['model'])
     return model
 
+
+def enable_finetune_mode(model, model_ckpt):
+    current_state_dict = model.state_dict()
+    for k in ['head.weight', 'head.bias', 'head_dist.weight', 'head_dist.bias']:
+        if k in model_ckpt and model_ckpt[k].shape != current_state_dict[k].shape:
+            print(f"Removing key {k} from pretrained checkpoint")
+            del model_ckpt[k]
+
+    # interpolate position embedding
+    pos_embed_checkpoint = model_ckpt['pos_embed']
+    embedding_size = pos_embed_checkpoint.shape[-1]
+    num_patches = model.patch_embed.num_patches
+    num_extra_tokens = model.pos_embed.shape[-2] - num_patches
+    # height (== width) for the checkpoint position embedding
+    orig_size = int((pos_embed_checkpoint.shape[-2] - num_extra_tokens) ** 0.5)
+    # height (== width) for the new position embedding
+    new_size = int(num_patches ** 0.5)
+    # class_token and dist_token are kept unchanged
+    extra_tokens = pos_embed_checkpoint[:, :num_extra_tokens]
+    # only the position tokens are interpolated
+    pos_tokens = pos_embed_checkpoint[:, num_extra_tokens:]
+    pos_tokens = pos_tokens.reshape(-1, orig_size, orig_size, embedding_size).permute(0, 3, 1, 2)
+    pos_tokens = torch.nn.functional.interpolate(
+        pos_tokens, size=(new_size, new_size), mode='bicubic', align_corners=False)
+    pos_tokens = pos_tokens.permute(0, 2, 3, 1).flatten(1, 2)
+    new_pos_embed = torch.cat((extra_tokens, pos_tokens), dim=1)
+    model_ckpt['pos_embed'] = new_pos_embed
+
+    model.load_state_dict(model_ckpt, strict=False)

@@ -5,6 +5,7 @@ import torch
 import torch.distributed as dist
 from collections import defaultdict, deque
 import sys
+import os
 
 def setup_logger(log_file):
     rank = 0 
@@ -165,3 +166,8 @@ def is_dist_avail_and_initialized():
     if not dist.is_initialized():
         return False
     return True
+
+def get_timestamped_log_file_path(log_file_path):
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file_path = f"{log_file_path}_{timestamp}"
+    return log_file_path

@@ -57,4 +57,4 @@ Thumbs.db
 *.gz
 
 
-dataset/cifar-10-batches-py/
+dataset/cifar*
