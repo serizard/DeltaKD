@@ -39,15 +39,10 @@ class DistillationLoss(torch.nn.Module):
                              "class_token and the dist_token")
         # don't backprop throught the teacher
         with torch.no_grad():
-            # teacher feature 같은 경우에는 원하는 layer의 output 저장. 
-            # layer 같은 경우에는 사전에 지정할 수 있음.
             teacher_logits, teacher_features = self.teacher_model(inputs)
-
         """ 
-
         student_features, teacher_features 예상 format
         : [batch_size, num_tokens, embed_dim]
-
         """
         if self.distillation_type == 'soft':
             T = self.tau

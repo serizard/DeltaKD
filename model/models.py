@@ -119,3 +119,6 @@ class VisionModelWrapper(nn.Module):
     
     def load_state_dict(self, state_dict: Dict[str, torch.Tensor], strict: bool = True):
         return self.model.load_state_dict(state_dict, strict)
+    
+    def parameters(self):
+        return self.model.parameters()

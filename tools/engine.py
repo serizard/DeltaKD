@@ -4,7 +4,7 @@ from timm.utils import accuracy, ModelEma
 import torch.nn as nn
 
 
-def train_one_epoch(student_model, teacher_model, train_loader, criterion, optimizer, grad_scaler, mixup_fn, model_ema, device, epoch, args):
+def train_one_epoch(student_model, teacher_model, train_loader, criterion, optimizer, loss_scaler, clip_grad, mixup_fn, model_ema, device, epoch, args):
     student_model.train()
     teacher_model.eval()
     metric_logger = MetricLogger()
@@ -35,10 +35,10 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
             acc1, acc5 = accuracy(student_logits, targets, topk=(1, 5))
         
         optimizer.zero_grad()
-        loss.backward()
-        if grad_scaler is not None:
-            grad_scaler(student_model.parameters())
-        optimizer.step()
+        # this attribute is added by timm on one optimizer (adahessian)
+        is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
+        loss_scaler(loss, optimizer, clip_grad=clip_grad,
+                    parameters=student_model.parameters(), create_graph=is_second_order)
         
         if model_ema is not None:
             model_ema.update(student_model)
