@@ -2,7 +2,7 @@ import torch
 from logs.logger import MetricLogger
 from timm.utils import accuracy, ModelEma
 import torch.nn as nn
-
+from model.models import forward_with_features
 
 def train_one_epoch(student_model, teacher_model, train_loader, criterion, optimizer, loss_scaler, clip_grad, mixup_fn, model_ema, device, epoch, args):
     student_model.train()
@@ -20,11 +20,15 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
 
         if args.amp:    
             with torch.cuda.amp.autocast(enabled=True):
-                student_logits, student_feats = student_model(samples)
+                if args.distillation_type.lower() not in ['soft', 'hard']:
+                    student_logits = student_model(samples)
+                    student_feats = None
+                else:
+                    student_logits, student_feats = forward_with_features(student_model, samples)
         else:
-            student_logits, student_feats = student_model(samples)
+            student_logits = student_model(samples)
 
-        loss = criterion(samples, student_logits, student_feats, targets)
+        loss = criterion(inputs=samples, outputs=student_logits, student_features=student_feats, labels=targets)
         
         if not isinstance(student_logits, torch.Tensor):
             student_logits, _ = student_logits
@@ -62,7 +66,7 @@ def validate(student_model, val_loader, device, args):
         targets = targets.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast(enabled=True):
-            student_logits, student_feats = student_model(samples)
+            student_logits = student_model(samples)
 
         if not isinstance(student_logits, torch.Tensor):
             student_logits, _ = student_logits

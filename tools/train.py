@@ -1,4 +1,4 @@
-from model.models import VisionModelWrapper
+from model.models import get_teacher_student_model
 from model.loss import DistillationLoss, call_base_loss
 import argparse
 from logs.logger import setup_logger, get_timestamped_log_file_path
@@ -193,9 +193,7 @@ def main():
     if args.rank == 0: 
         print(args)
 
-    teacher_model = VisionModelWrapper(args.teacher_model, pretrained=True, drop_path_rate=args.drop_path_rate, args=args)
-    student_model = VisionModelWrapper(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate, args=args)
-    teacher_model = teacher_model.freeze_model()
+    teacher_model, student_model = get_teacher_student_model(args.teacher_model, args.student_model, args.drop_path_rate, args.dataset, args)
 
     args.log_file = get_timestamped_log_file_path(args.log_file)
     logger = setup_logger(args.log_file)
