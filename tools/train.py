@@ -9,12 +9,13 @@ from timm.data import Mixup
 from dataset.datasets import DatasetBuilder
 from timm.scheduler import create_scheduler
 from timm.optim import create_optimizer
-from timm.utils import ModelEma
+from timm.utils import ModelEma, NativeScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from utils import setup_distributed, setup_device, seed_everything
 from engine import train_one_epoch, validate
 from utils import save_checkpoint, remove_module_prefix, enable_finetune_mode, get_model_state
 from tools.augment import new_data_aug_generator
+from torch.nn import SyncBatchNorm
 
 
 def parse_args():
@@ -196,7 +197,8 @@ def main():
     teacher_model = VisionModelWrapper(args.teacher_model, pretrained=True, drop_path_rate=args.drop_path_rate, args=args)
     student_model = VisionModelWrapper(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate, args=args)
     teacher_model = teacher_model.freeze_model()
-
+    student_model = SyncBatchNorm.convert_sync_batchnorm(student_model)
+    
     args.log_file = get_timestamped_log_file_path(args.log_file)
     logger = setup_logger(args.log_file)
     logger.info(f"Training started with {args.teacher_model} as teacher and {args.student_model} as student")
@@ -215,7 +217,8 @@ def main():
     optimizer = create_optimizer(args, student_model)
     scheduler, _ = create_scheduler(args, optimizer)
     # grad_scaler = ScaledGradNorm(args)
-    grad_scaler = None
+    # grad_scaler = None
+    loss_scaler = NativeScaler()
 
     start_epoch = 0
     if args.checkpoint:
@@ -227,9 +230,9 @@ def main():
             print(f"Starting from epoch: {start_epoch}")
             optimizer.load_state_dict(checkpoint['optimizer'])
             scheduler.load_state_dict(checkpoint['scheduler'])
-            if grad_scaler is not None and checkpoint.get('scaler') is not None:
-                grad_scaler.load_state_dict(checkpoint['scaler'])
-
+            # if grad_scaler is not None and checkpoint.get('scaler') is not None:
+            #     grad_scaler.load_state_dict(checkpoint['scaler'])
+            loss_scaler.load_state_dict(checkpoint['scaler'])
         student_state = remove_module_prefix(checkpoint['model'])
         if args.finetune:
             enable_finetune_mode(student_model, student_state)
@@ -246,7 +249,7 @@ def main():
         mixup_fn = None
 
     criterion_task = call_base_loss(args)
-    criterion_distillation = DistillationLoss(base_criterion=criterion_task, teacher_model=teacher_model, distillation_type=args.distillation_type, alpha=args.alpha, tau=args.tau)
+    criterion_distillation = DistillationLoss(base_criterion=criterion_task, student_model=student_model, teacher_model=teacher_model, distillation_type=args.distillation_type, alpha=args.alpha, tau=args.tau)
 
     if args.ema_decay:
         model_ema = ModelEma(student_model, decay=args.ema_decay, device=device)
@@ -272,7 +275,9 @@ def main():
                                         train_loader = train_loader,
                                         criterion = criterion_distillation,
                                         optimizer = optimizer,
-                                        grad_scaler = grad_scaler,
+                                        # grad_scaler = grad_scaler,
+                                        loss_scaler = loss_scaler,
+                                        clip_grad = args.clip_grad,
                                         mixup_fn = mixup_fn,
                                         model_ema = model_ema,
                                         device = device,
@@ -300,7 +305,8 @@ def main():
                 'model': get_model_state(student_model),
                 'optimizer': optimizer.state_dict(),
                 'scheduler': scheduler.state_dict(),
-                'scaler': grad_scaler.state_dict() if grad_scaler is not None else None,
+                # 'scaler': grad_scaler.state_dict() if grad_scaler is not None else None,
+                'scaler': loss_scaler.state_dict(),
             }, is_best=is_best, filename=f'{args.save_dir}/checkpoint.pth') 
 
     logger.info("Training completed")

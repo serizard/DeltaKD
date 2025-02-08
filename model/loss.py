@@ -3,6 +3,7 @@ from timm.loss import SoftTargetCrossEntropy, LabelSmoothingCrossEntropy
 import torch.nn.functional as F
 import torch.nn as nn
 from model.dist_loss import ViTKDLoss
+from model.vitkd_loss import vitkd_loss
 
 """
 !!student & teacher model 간의 관계!!
@@ -14,14 +15,16 @@ layer 수는 동일한 것이 좋지만 아니어도 대처는 가능하지 않�
 
 """
 class DistillationLoss(torch.nn.Module):
-    def __init__(self, base_criterion: torch.nn.Module, teacher_model: torch.nn.Module,
+    def __init__(self, base_criterion: torch.nn.Module, student_model: torch.nn.Module, teacher_model: torch.nn.Module,
                  distillation_type: str, alpha: float, tau: float):
         super().__init__()
         self.base_criterion = base_criterion
+        self.student_model = student_model
         self.teacher_model = teacher_model
         self.distillation_type = distillation_type
         self.alpha = alpha
         self.tau = tau
+
 
     def forward(self, inputs, outputs, student_features, labels):
         outputs_kd = None
@@ -59,15 +62,23 @@ class DistillationLoss(torch.nn.Module):
             ) * (T * T) / outputs_kd.numel()
         elif self.distillation_type == 'hard':
             distillation_loss = F.cross_entropy(outputs_kd, teacher_logits.argmax(dim=1))
-        elif self.distillation_type == 'ViTKD':
-            ViTKD_loss = ViTKDLoss(student__dims=student_features.shape[-1], teacher_dims=teacher_features.shape[-1])
-            """Forward function.
-            Args:
-                preds_S(List): [B*2*N*D, B*N*D], student's feature map
-                preds_T(List): [B*2*N*D, B*N*D], teacher's feature map
-            """
-            # 기본 teacher_features format 보고 맞춰야함.
-            distillation_loss = ViTKD_loss(student_features, teacher_features)
+        elif self.distillation_type == 'vitkd':
+
+            # student_model이 DDP로 감싸져 있으면 .module을 사용하여 원본 모델 접근
+            student_model = self.student_model.module if isinstance(self.student_model, torch.nn.parallel.DistributedDataParallel) else self.student_model
+            
+            student_dims = student_features['block_0'].shape[-1]
+            teacher_dims = teacher_features['block_0'].shape[-1]
+            # vitkd 설정을 forward()에서 수행
+            student_model.setup_vitkd_loss(student_dims=student_dims, teacher_dims=teacher_dims)
+            student_model.to(student_features['block_0'].device)
+            # ViTKD Loss 계산
+            loss_lr_gen = vitkd_loss(student_model, student_features, teacher_features, 
+                        alpha_vitkd=0.00003, beta_vitkd=0.000003, lambda_vitkd=0.5)
+            loss_origin = base_loss
+            vitkd_total_loss = loss_lr_gen + loss_origin
+            return vitkd_total_loss
+        
         elif self.distillation_type == 'AAAKD':
             pass
         elif self.distillation_type == 'TokenKD':

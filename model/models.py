@@ -119,3 +119,27 @@ class VisionModelWrapper(nn.Module):
     
     def load_state_dict(self, state_dict: Dict[str, torch.Tensor], strict: bool = True):
         return self.model.load_state_dict(state_dict, strict)
+
+    def parameters(self):
+        return self.model.parameters()
+    
+    def setup_vitkd_loss(self, student_dims: int = 768, teacher_dims: int = 768, alpha_vitkd: float = 0.00003, beta_vitkd: float = 0.000003, lambda_vitkd: float = 0.5):
+        self.alpha_vitkd = alpha_vitkd
+        self.beta_vitkd = beta_vitkd
+        self.lambda_vitkd = lambda_vitkd
+
+        if student_dims != teacher_dims:
+            self.align2 = nn.ModuleList([
+                nn.Linear(student_dims, teacher_dims, bias=True)
+                for i in range(2)])
+            self.align = nn.Linear(student_dims, teacher_dims, bias=True)
+        else:
+            self.align2 = None
+            self.align = None
+
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, teacher_dims))
+
+        self.generation = nn.Sequential(
+                nn.Conv2d(teacher_dims, teacher_dims, kernel_size=3, padding=1),
+                nn.ReLU(inplace=True), 
+                nn.Conv2d(teacher_dims, teacher_dims, kernel_size=3, padding=1))
