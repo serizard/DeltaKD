@@ -11,7 +11,7 @@ Attention-Aware Adaptive Knowledge Distillation for Vision Transformers
 ## Install
 1. Clone this repo and run the commands below
 ```
-https://github.com/serizard/AAAKD.git && cd AAAKD 
+git clone https://github.com/serizard/AAAKD.git && cd AAAKD 
 ```
 
 2. Install Packages
