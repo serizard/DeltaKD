@@ -3,6 +3,7 @@ from timm.loss import SoftTargetCrossEntropy, LabelSmoothingCrossEntropy
 import torch.nn.functional as F
 import torch.nn as nn
 from model.models import forward_with_features
+from model.misc import random_masking
 """
 !!student & teacher model 간의 관계!!
 
@@ -22,7 +23,7 @@ class DistillationLoss(torch.nn.Module):
         self.alpha = alpha
         self.tau = tau
 
-    def forward(self, inputs, outputs, student_features, labels):
+    def forward(self, inputs, outputs, student_model, student_features, labels, args):
         outputs_kd = None
         if not isinstance(outputs, torch.Tensor):
             # assume that the model outputs a tuple of [outputs, outputs_kd]
@@ -38,7 +39,7 @@ class DistillationLoss(torch.nn.Module):
                              "class_token and the dist_token")
 
         with torch.no_grad():
-            if self.distillation_type.lower() not in ['soft', 'hard']:
+            if self.distillation_type.lower() in ['soft', 'hard']:
                 teacher_logits = self.teacher_model(inputs)
             else:
                 teacher_logits, teacher_features = forward_with_features(self.teacher_model, inputs)
@@ -46,7 +47,7 @@ class DistillationLoss(torch.nn.Module):
         student_features, teacher_features 예상 format
         : [batch_size, num_tokens, embed_dim]
         """
-        if self.distillation_type == 'soft':
+        if self.distillation_type.lower() == 'soft':
             T = self.tau
             distillation_loss = F.kl_div(
                 F.log_softmax(outputs_kd / T, dim=1),
@@ -54,9 +55,11 @@ class DistillationLoss(torch.nn.Module):
                 reduction='sum',
                 log_target=True
             ) * (T * T) / outputs_kd.numel()
-        elif self.distillation_type == 'hard':
+
+        elif self.distillation_type.lower() == 'hard':
             distillation_loss = F.cross_entropy(outputs_kd, teacher_logits.argmax(dim=1))
-        elif self.distillation_type == 'ViTKD':
+
+        elif self.distillation_type.lower() == 'vitkd':
             student_model = student_model.module if isinstance(student_model, torch.nn.parallel.DistributedDataParallel) else student_model
             
             student_model.to(inputs.device)
@@ -64,8 +67,21 @@ class DistillationLoss(torch.nn.Module):
                         alpha_vitkd=0.00003, beta_vitkd=0.000003, lambda_vitkd=0.5)
             return base_loss + distillation_loss
 
-        elif self.distillation_type == 'AAAKD':
-            pass
+        elif self.distillation_type.lower() == 'lrkd':
+            student_model = student_model.module if isinstance(student_model, torch.nn.parallel.DistributedDataParallel) else student_model
+            student_model.to(inputs.device)
+
+            rank = args.lrkd_rank
+            # CLS token 제거 및 projection
+            student_features = [
+                student_model.align[0](student_features[0][:, 1:]),
+                student_model.align[1](student_features[1][:, 1:]),
+                student_model.align[2](student_features[-1][:, 1:])
+            ]
+
+            # CLS, DIST token 제거
+            teacher_features = [teacher_features[0][:, 2:], teacher_features[1][:, 2:], teacher_features[11][:, 2:]]
+            distillation_loss = lrkd_loss(teacher_features, student_features, rank, alpha=args.lrkd_alpha, beta=args.lrkd_beta, gamma=args.lrkd_gamma)
 
         loss = base_loss * (1 - self.alpha) + distillation_loss * self.alpha
         return loss
@@ -140,31 +156,20 @@ def vitkd_loss(student_model, student_features, teacher_features,
         
     return loss_lr + loss_gen
 
-def random_masking(x, mask_ratio):
-    """
-    Perform per-sample random masking by per-sample shuffling.
-    Per-sample shuffling is done by argsort random noise.
-    x: [N, L, D], sequence
-    """
-    N, L, D = x.shape  # batch, length, dim
-    len_keep = int(L * (1 - mask_ratio))
-    
-    noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
-    
-    # sort noise for each sample
-    ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
-    ids_restore = torch.argsort(ids_shuffle, dim=1)
 
-    # keep the first subset
-    ids_keep = ids_shuffle[:, :len_keep]
-    ids_masked = ids_shuffle[:, len_keep:L]
+def lrkd_loss(teacher_features, student_features, rank=10, alpha=0.1, beta=0.1, gamma=0.1):
+    loss_mse = nn.MSELoss(reduction='mean')
+    losses = []
+    for t_feat, s_feat in zip(teacher_features, student_features):
+        t_feat = t_feat.reshape(-1, t_feat.size(-1))
+        s_feat = s_feat.reshape(-1, s_feat.size(-1))
+        
+        U, S, _ = torch.linalg.svd(t_feat, full_matrices=False)
+        U_k = U[:, :rank]
+        S_k = torch.diag(S[:rank])
+        aligned_t_feat = torch.mm(U_k, S_k)
 
-    x_keep = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
+        loss = loss_mse(aligned_t_feat, s_feat)
+        losses.append(loss)
 
-    # generate the binary mask: 0 is keep, 1 is remove
-    mask = torch.ones([N, L], device=x.device)
-    mask[:, :len_keep] = 0
-    # unshuffle to get the binary mask
-    mask = torch.gather(mask, dim=1, index=ids_restore)
-
-    return x_keep, mask, ids_restore, ids_masked
+    return losses[0] * alpha + losses[1] * beta + losses[2] * gamma

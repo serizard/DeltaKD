@@ -20,15 +20,19 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
 
         if args.amp:    
             with torch.cuda.amp.autocast(enabled=True):
-                if args.distillation_type.lower() not in ['soft', 'hard']:
+                if args.distillation_type.lower() in ['soft', 'hard']:
                     student_logits = student_model(samples)
                     student_feats = None
                 else:
                     student_logits, student_feats = forward_with_features(student_model, samples)
         else:
-            student_logits = student_model(samples)
+            if args.distillation_type.lower() in ['soft', 'hard']:
+                student_logits = student_model(samples)
+                student_feats = None
+            else:
+                student_logits, student_feats = forward_with_features(student_model, samples)
 
-        loss = criterion(inputs=samples, outputs=student_logits, student_features=student_feats, labels=targets)
+        loss = criterion(samples, student_logits, student_model, student_feats, targets, args)
         
         if not isinstance(student_logits, torch.Tensor):
             student_logits, _ = student_logits

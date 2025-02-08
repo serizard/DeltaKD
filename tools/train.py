@@ -99,7 +99,7 @@ def parse_args():
 
     # Distillation
     parser.add_argument('--distillation-type', type=str, 
-                        choices=['none', 'soft', 'hard', 'vitkd', 'aaakd', 'vitkd_w_logit', 'aaakd_w_logit'], 
+                        choices=['none', 'soft', 'hard', 'vitkd', 'aaakd', 'vitkd_w_logit', 'aaakd_w_logit', 'lrkd'], 
                         default='none',
                         help='Type of knowledge distillation to use')
     parser.add_argument('--alpha', type=float, default=0.1,
@@ -107,6 +107,16 @@ def parse_args():
     parser.add_argument('--tau', type=float, default=3.0,
                         help='Temperature parameter for distillation')
     
+    # LRKD
+    parser.add_argument('--lrkd-rank', type=int, default=32,
+                        help='Rank for LRKD')
+    parser.add_argument('--lrkd-alpha', type=float, default=0.1,
+                        help='Alpha for LRKD')
+    parser.add_argument('--lrkd-beta', type=float, default=0.1,
+                        help='Beta for LRKD')
+    parser.add_argument('--lrkd-gamma', type=float, default=0.1,
+                        help='Gamma for LRKD')
+
     # Saving and logging
     parser.add_argument('--log-file', type=str, default='logs/train.log',
                         help='Path to save training logs')

@@ -39,6 +39,12 @@ def get_teacher_student_model(teacher_model_name, student_model_name, drop_path_
             nn.ReLU(inplace=True), 
             nn.Conv2d(teacher_dims, teacher_dims, kernel_size=3, padding=1))
 
+    elif distillation_type.lower() == 'lrkd':
+        student_dims = student_model.embed_dim
+        student_model.align = nn.ModuleList([
+            nn.Linear(student_dims, args.lrkd_rank, bias=True)
+            for i in range(3)])
+
     elif 'deit' in student_model_name and distillation_type.lower() in ['soft', 'hard']:
         student_model.set_distilled_training(enable=True)
     
