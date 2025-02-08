@@ -47,21 +47,21 @@ def get_teacher_student_model(teacher_model_name, student_model_name, drop_path_
 
 
 def forward_with_features(model, x):
-    ffn_outputs = [] 
-    if hasattr(model, 'blocks'):
-        for block in model.blocks:
-            if hasattr(block, 'mlp'):
-                def hook_fn(module, input, output):
-                    ffn_outputs.append(output)
-                handle = block.mlp.register_forward_hook(hook_fn)
-    
-        output = model(x)
-        
-        for block in model.blocks:
-            if hasattr(block, 'mlp'):
-                for hook in block.mlp._forward_hooks.values():
-                    hook.remove()
-        
-        return output, ffn_outputs 
-    
-    return None, None 
+    if not hasattr(model, "blocks"):
+        return None, None
+
+    blocks = [block for block in model.blocks if hasattr(block, "mlp")]
+    ffn_outputs = [None] * len(blocks)
+
+    hook_handles = [
+        block.mlp.register_forward_hook(
+            lambda module, inp, out, idx=i: ffn_outputs.__setitem__(idx, out)
+        )
+        for i, block in enumerate(blocks)
+    ]
+
+    output = model(x)
+    for handle in hook_handles:
+        handle.remove()
+
+    return output, ffn_outputs
