@@ -70,7 +70,7 @@ class DistillationLoss(torch.nn.Module):
             student_dims = student_features['block_0'].shape[-1]
             teacher_dims = teacher_features['block_0'].shape[-1]
             # vitkd 설정을 forward()에서 수행
-            student_model.setup_vitkd_loss(student_dims=student_dims, teacher_dims=teacher_dims)
+            # student_model.setup_vitkd_loss(student_dims=student_dims, teacher_dims=teacher_dims)
             student_model.to(student_features['block_0'].device)
             # ViTKD Loss 계산
             loss_lr_gen = vitkd_loss(student_model, student_features, teacher_features, 
