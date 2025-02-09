@@ -198,7 +198,8 @@ def main():
     student_model = VisionModelWrapper(args.student_model, pretrained=False, drop_path_rate=args.drop_path_rate, args=args)
     teacher_model = teacher_model.freeze_model()
     student_model = SyncBatchNorm.convert_sync_batchnorm(student_model)
-    
+    student_model.setup_vitkd_loss(student_dims=192, teacher_dims=384)
+
     args.log_file = get_timestamped_log_file_path(args.log_file)
     logger = setup_logger(args.log_file)
     logger.info(f"Training started with {args.teacher_model} as teacher and {args.student_model} as student")
