@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 from model.models import forward_with_features
 from model.misc import random_masking
+import math
 """
 !!student & teacher model 간의 관계!!
 
@@ -82,6 +83,52 @@ class DistillationLoss(torch.nn.Module):
             # CLS, DIST token 제거
             teacher_features = [teacher_features[0][:, 2:], teacher_features[1][:, 2:], teacher_features[11][:, 2:]]
             distillation_loss = lrkd_loss(teacher_features, student_features, rank, alpha=args.lrkd_alpha, beta=args.lrkd_beta, gamma=args.lrkd_gamma)
+
+        elif self.distillation_type.lower() == 'diffkd':
+            student_model = student_model.module if isinstance(student_model, torch.nn.parallel.DistributedDataParallel) else student_model
+            student_model.to(inputs.device)
+
+            # CLS 토큰과 패치 임베딩 결합
+            student_features = [
+                student_model.align[0](student_features[0][:, 1:]),
+                student_model.align[1](student_features[1][:, 1:]),
+                student_model.align[2](student_features[-1][:, 1:])
+            ]
+            teacher_features = [feat[:, 2:, :] for feat in teacher_features]  # CLS, DIST 토큰 제거
+
+            # Phase 1: Diffusion-Driven Feature Perturbation
+            T = 8  # diffusion steps
+            t = torch.randint(0, T, (inputs.shape[0],), device=inputs.device)
+            
+            # Adaptive noise scheduling
+            sigma_max = torch.where(t < T//2, 
+                                  torch.tensor(0.3, device=inputs.device),
+                                  torch.tensor(0.7, device=inputs.device))
+            sigma_t = (1 - torch.cos(math.pi * t.float() / T)) * sigma_max
+            
+            # Feature matching loss with noise-aware weighting
+            feat_loss = 0
+            for s_feat, t_feat in zip(student_features, teacher_features):
+                # Add noise to teacher features
+                t_feat = t_feat / torch.norm(t_feat, p=2, dim=-1, keepdim=True)
+                s_feat = s_feat / torch.norm(s_feat, p=2, dim=-1, keepdim=True)
+                
+                noise = torch.randn_like(t_feat) * sigma_t.view(-1, 1, 1)
+                noisy_t_feat = t_feat + noise
+                # Noise prediction by student
+                pred_noise = student_model.denoise_fn(noisy_t_feat, t)
+                feat_loss += F.mse_loss(pred_noise, noise)
+                
+                # Feature matching with adaptive weights
+                w_t = 1 / (sigma_t ** 2 + 1e-8)
+                feat_loss += w_t.mean() * F.mse_loss(s_feat, t_feat)
+
+            feat_loss = feat_loss / len(student_features)
+
+            # Combine losses
+            lambda_feat = 5e-5
+            distillation_loss = feat_loss * lambda_feat
+    
 
         loss = base_loss * (1 - self.alpha) + distillation_loss * self.alpha
         return loss

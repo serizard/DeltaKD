@@ -5,6 +5,7 @@ from typing import List, Dict, Optional
 from functools import partial
 import timm
 from dataset.datasets import DATASET_STATS
+import types
 
 
 
@@ -48,7 +49,45 @@ def get_teacher_student_model(teacher_model_name, student_model_name, drop_path_
     elif 'deit' in student_model_name and distillation_type.lower() in ['soft', 'hard']:
         student_model.set_distilled_training(enable=True)
     
-    
+    elif distillation_type.lower() == 'diffkd':
+        student_dims = student_model.embed_dim
+        teacher_dims = teacher_model.embed_dim
+
+        # Create a custom denoising module instead of Sequential
+        class DenoisingNetwork(nn.Module):
+            def __init__(self, dims):
+                super().__init__()
+                self.net = nn.Sequential(
+                    nn.Linear(dims, dims * 2),
+                    nn.GELU(),
+                    nn.Linear(dims * 2, dims),
+                    nn.Dropout(0.1)
+                )
+                self.time_embed = nn.Sequential(
+                    nn.Linear(1, dims),
+                    nn.GELU(),
+                    nn.Linear(dims, dims)
+                )
+            
+            def forward(self, x, t):
+                # Time embedding
+                t_emb = self.time_embed(t.float().view(-1, 1))
+                
+                # Add time information to features
+                x = x + t_emb.unsqueeze(1)
+                
+                # Predict noise
+                return self.net(x)
+
+        # Replace sequential with custom module
+        student_model.denoise_fn = DenoisingNetwork(teacher_dims)
+
+        # Feature alignment layers
+        student_model.align = nn.ModuleList([
+            nn.Linear(student_dims, teacher_dims, bias=True)
+            for _ in range(3)  # 3개의 주요 레이어에 대해 정렬
+        ])
+
     return teacher_model, student_model
 
 

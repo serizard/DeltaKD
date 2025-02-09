@@ -1,4 +1,4 @@
-program: exp/lrkd-deit-tiny.sh
+program: exp/lrkd-deit-tiny-sweep.sh
 command:
   - bash
   - ${program}

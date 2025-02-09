@@ -20,15 +20,9 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS torchrun --nproc_per_node=$NUM_GPUS --master_port 
     --batch-size 256 \
     --lr 5e-4 \
     --weight-decay 1e-4 \
-    --alpha 0.1 \
-    --tau 3.0 \
     --gpus $GPU_IDS \
-    --distillation-type lrkd \
-    --lrkd-rank 64 \
-    --lrkd-alpha 0.2 \
-    --lrkd-beta 0.2 \
-    --lrkd-gamma 0.2 \
-    --log-file logs/lrkd-deit-tiny-cifar100.log \
-    --save-dir checkpoints/lrkd-deit-tiny-cifar100 \
+    --distillation-type diffkd \
+    --log-file logs/diffkd-deit-tiny-cifar100.log \
+    --save-dir checkpoints/diffkd-deit-tiny-cifar100 \
     --wandb \
     --wandb-project AAAKD

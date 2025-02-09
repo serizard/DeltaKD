@@ -99,7 +99,7 @@ def parse_args():
 
     # Distillation
     parser.add_argument('--distillation-type', type=str, 
-                        choices=['none', 'soft', 'hard', 'vitkd', 'aaakd', 'vitkd_w_logit', 'aaakd_w_logit', 'lrkd'], 
+                        choices=['none', 'soft', 'hard', 'vitkd', 'aaakd', 'vitkd_w_logit', 'aaakd_w_logit', 'lrkd', 'diffkd'], 
                         default='none',
                         help='Type of knowledge distillation to use')
     parser.add_argument('--alpha', type=float, default=0.1,
