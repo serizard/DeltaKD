@@ -3,7 +3,7 @@ from timm.loss import SoftTargetCrossEntropy, LabelSmoothingCrossEntropy
 import torch.nn.functional as F
 import torch.nn as nn
 from model.models import forward_with_features
-from model.misc import random_masking
+from model.misc import random_masking, saliency_masking
 import math
 """
 !!student & teacher model 간의 관계!!
@@ -94,7 +94,8 @@ class DistillationLoss(torch.nn.Module):
                 student_model.align[1](student_features[1][:, 1:]),
                 student_model.align[2](student_features[-1][:, 1:])
             ]
-            teacher_features = [feat[:, 2:, :] for feat in teacher_features]  # CLS, DIST 토큰 제거
+            # teacher_features = [feat[:, 2:, :] for feat in teacher_features]  # CLS, DIST 토큰 제거
+            teacher_features = [teacher_features[0][:, 2:], teacher_features[1][:, 2:], teacher_features[-1][:, 2:]]
 
             # Phase 1: Diffusion-Driven Feature Perturbation
             T = 8  # diffusion steps
@@ -129,6 +130,15 @@ class DistillationLoss(torch.nn.Module):
             lambda_feat = 5e-5
             distillation_loss = feat_loss * lambda_feat
     
+        elif self.distillation_type.lower() == 'saliency_mgd':
+            student_model = student_model.module if isinstance(student_model, torch.nn.parallel.DistributedDataParallel) else student_model
+            student_model.to(inputs.device)
+
+            distillation_loss = saliency_mgd_loss(student_model, student_features, teacher_features, args)
+            print(f"distillation_loss: {distillation_loss}")
+            print(f"base_loss: {base_loss}")
+            return base_loss + distillation_loss
+
 
         loss = base_loss * (1 - self.alpha) + distillation_loss * self.alpha
         return loss
@@ -220,3 +230,30 @@ def lrkd_loss(teacher_features, student_features, rank=10, alpha=0.1, beta=0.1, 
         losses.append(loss)
 
     return losses[0] * alpha + losses[1] * beta + losses[2] * gamma
+
+# 1. [CLS] 토큰 제외 + Self-Attention → Attention Weight 사용
+# 2. [CLS] 포함 + Self-Attention → [CLS] 부분의 Attention Weight 추출
+# 3. Cross-Attention: [CLS]를 Query, 패치들을 Key/Value로 → Attention Weight 사용
+
+def saliency_mgd_loss(student_model, student_features, teacher_features, args):
+    loss_mse = nn.MSELoss(reduction='mean')
+
+    student_features = student_model.align(student_features[-1][:, 1:])
+    teacher_features = teacher_features[-1]
+    B, N, D = student_features.shape
+
+    x, mat, ids = saliency_masking(student_model, teacher_features, student_features, args.saliency_mask_ratio, args.saliency_method)
+
+    mask_tokens = student_model.mask_token.repeat(B, N - x.shape[1], 1)
+    x_ = torch.cat([x, mask_tokens], dim=1)
+    x = torch.gather(x_, dim=1, index=ids.unsqueeze(-1).repeat(1, 1, D))
+    mask = mat.unsqueeze(-1)
+
+    hw = int(N**0.5)
+    x = x.reshape(B, hw, hw, D).permute(0, 3, 1, 2)
+    x = student_model.generation(x).flatten(2).transpose(1,2)
+
+    teacher_features = teacher_features[:, 2:]
+    loss_gen = loss_mse(torch.mul(x, mask), torch.mul(teacher_features, mask))
+        
+    return loss_gen

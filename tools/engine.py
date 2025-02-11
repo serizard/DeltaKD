@@ -32,6 +32,7 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
             else:
                 student_logits, student_feats = forward_with_features(student_model, samples)
 
+        args.current_epoch = epoch
         loss = criterion(samples, student_logits, student_model, student_feats, targets, args)
         
         if not isinstance(student_logits, torch.Tensor):

@@ -1,4 +1,3 @@
-from model.models import get_teacher_student_model
 from model.loss import DistillationLoss, call_base_loss
 import argparse
 from logs.logger import setup_logger, get_timestamped_log_file_path
@@ -11,10 +10,12 @@ from timm.scheduler import create_scheduler
 from timm.optim import create_optimizer
 from timm.utils import ModelEma, NativeScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
-from utils import setup_distributed, setup_device, seed_everything
+from utils import setup_distributed, setup_device, seed_everything, measure_throughput
 from engine import train_one_epoch, validate
 from utils import save_checkpoint, remove_module_prefix, enable_finetune_mode, get_model_state
 from tools.augment import new_data_aug_generator
+from model.models import load_teacher_student_model
+from thop import profile
 
 
 def parse_args():
@@ -99,7 +100,7 @@ def parse_args():
 
     # Distillation
     parser.add_argument('--distillation-type', type=str, 
-                        choices=['none', 'soft', 'hard', 'vitkd', 'aaakd', 'vitkd_w_logit', 'aaakd_w_logit', 'lrkd', 'diffkd'], 
+                        choices=['none', 'soft', 'hard', 'vitkd', 'aaakd', 'vitkd_w_logit', 'aaakd_w_logit', 'lrkd', 'diffkd', 'saliency_mgd'], 
                         default='none',
                         help='Type of knowledge distillation to use')
     parser.add_argument('--alpha', type=float, default=0.1,
@@ -116,6 +117,13 @@ def parse_args():
                         help='Beta for LRKD')
     parser.add_argument('--lrkd-gamma', type=float, default=0.1,
                         help='Gamma for LRKD')
+
+    # Saliency_MGD
+    parser.add_argument('--saliency-method', type=int, default=1,
+                        help='1. [CLS] 토큰 제외 + Self-Attention → Attention Weight 사용 2. [CLS] 포함 + Self-Attention → [CLS] 부분의 Attention Weight 추출 3. Cross-Attention: [CLS]를 Query, 패치들을 Key/Value로 → Attention Weight 사용')
+    parser.add_argument('--saliency-mask-ratio', type=float, default=0.5,
+                        help='Mask ratio for saliency masking')
+
 
     # Saving and logging
     parser.add_argument('--log-file', type=str, default='logs/train.log',
@@ -203,15 +211,38 @@ def main():
     if args.rank == 0: 
         print(args)
 
-    teacher_model, student_model = get_teacher_student_model(args.teacher_model, args.student_model, args.drop_path_rate, args.dataset, args)
+    teacher_model, student_model = load_teacher_student_model(args.teacher_model, args.student_model, args.drop_path_rate, args)
 
     args.log_file = get_timestamped_log_file_path(args.log_file)
     logger = setup_logger(args.log_file)
     logger.info(f"Training started with {args.teacher_model} as teacher and {args.student_model} as student")
+    
+    if args.rank == 0:
+        dummy_input = torch.randn(1, 3, args.input_size, args.input_size)
+        flops, params = profile(student_model, inputs=(dummy_input,))
+        flops, params = flops / 1e9, params / 1e6 
+        
+        dataset_builder = DatasetBuilder(args)
+        throughput_loader = dataset_builder.build_loader(is_train=False)
+        throughput = measure_throughput(student_model, device, throughput_loader)
+        logger.info(f"Model Statistics:")
+        logger.info(f"FLOPs: {flops:.2f}G")
+        logger.info(f"Parameters: {params:.2f}M")
+        logger.info(f"Throughput: {throughput:.2f} images/sec")
 
     if args.wandb and (not args.distributed or args.rank == 0):
         logger.info("Wandb init")
-        wandb.init(project=args.wandb_project, config=args, name=args.log_file.replace('.log', ''))
+        wandb.init(
+            project=args.wandb_project, 
+            config=args, 
+            name=args.log_file.replace('.log', '')
+        )
+        # wandb에 모델 성능 지표 기록
+        wandb.run.summary.update({
+            "flops_G": flops,
+            "params_M": params,
+            "throughput": throughput
+        })
 
     dataset_builder = DatasetBuilder(args)
     train_loader = dataset_builder.build_loader(is_train=True)

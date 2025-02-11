@@ -5,6 +5,8 @@ import numpy as np
 import random
 import shutil
 import datetime
+import time
+
 
 def remove_module_prefix(state_dict): # resume할 때.
     new_state_dict = {}
@@ -135,3 +137,23 @@ def enable_finetune_mode(model, model_ckpt):
     model_ckpt['pos_embed'] = new_pos_embed
 
     model.load_state_dict(model_ckpt, strict=False)
+
+def measure_throughput(model, device, loader, num_batches=10):
+    model.eval()
+    model.to(device)
+    total_images = 0
+    start_time = time.time()
+    with torch.no_grad():
+        for i, (images, _) in enumerate(loader):
+            images = images.to(device)
+            _ = model(images)
+            total_images += images.size(0)
+            if i >= num_batches - 1:
+                break
+    if device.type == 'cuda':
+        torch.cuda.synchronize()
+    end_time = time.time()
+    throughput = total_images / (end_time - start_time)
+    model.train()
+    model.to('cpu')
+    return throughput
