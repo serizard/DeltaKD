@@ -9,6 +9,7 @@ from dataset.datasets import DatasetBuilder
 from timm.scheduler import create_scheduler
 from timm.optim import create_optimizer
 from timm.utils import ModelEma, NativeScaler
+from timm.utils import ModelEma, NativeScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from utils import setup_distributed, setup_device, seed_everything, measure_throughput
 from engine import train_one_epoch, validate
@@ -263,6 +264,7 @@ def main():
     optimizer = create_optimizer(args, student_model)
     scheduler, _ = create_scheduler(args, optimizer)
     loss_scaler = NativeScaler()
+    loss_scaler = NativeScaler()
 
     start_epoch = 0
     if args.checkpoint:
@@ -274,6 +276,7 @@ def main():
             print(f"Starting from epoch: {start_epoch}")
             optimizer.load_state_dict(checkpoint['optimizer'])
             scheduler.load_state_dict(checkpoint['scheduler'])
+            loss_scaler.load_state_dict(checkpoint['scaler'])
             loss_scaler.load_state_dict(checkpoint['scaler'])
 
         student_state = remove_module_prefix(checkpoint['model'])
@@ -320,6 +323,8 @@ def main():
                                         optimizer = optimizer,
                                         loss_scaler = loss_scaler,
                                         clip_grad = args.clip_grad,
+                                        loss_scaler = loss_scaler,
+                                        clip_grad = args.clip_grad,
                                         mixup_fn = mixup_fn,
                                         model_ema = model_ema,
                                         device = device,
@@ -347,6 +352,7 @@ def main():
                 'model': get_model_state(student_model),
                 'optimizer': optimizer.state_dict(),
                 'scheduler': scheduler.state_dict(),
+                'scaler': loss_scaler.state_dict(),
                 'scaler': loss_scaler.state_dict(),
             }, is_best=is_best, filename=f'{args.save_dir}/checkpoint.pth') 
 

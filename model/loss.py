@@ -27,6 +27,7 @@ class DistillationLoss(torch.nn.Module):
         self.tau = tau
 
     def forward(self, inputs, outputs, student_model, student_features, labels, args):
+    def forward(self, inputs, outputs, student_model, student_features, labels, args):
         outputs_kd = None
         if not isinstance(outputs, torch.Tensor):
             # assume that the model outputs a tuple of [outputs, outputs_kd]
@@ -46,10 +47,15 @@ class DistillationLoss(torch.nn.Module):
                 teacher_logits = self.teacher_model(inputs)
             else:
                 teacher_logits, teacher_features = forward_with_features(self.teacher_model, inputs)
+            if self.distillation_type.lower() in ['soft', 'hard']:
+                teacher_logits = self.teacher_model(inputs)
+            else:
+                teacher_logits, teacher_features = forward_with_features(self.teacher_model, inputs)
         """ 
         student_features, teacher_features 예상 format
         : [batch_size, num_tokens, embed_dim]
         """
+        if self.distillation_type.lower() == 'soft':
         if self.distillation_type.lower() == 'soft':
             T = self.tau
             distillation_loss = F.kl_div(
@@ -58,6 +64,8 @@ class DistillationLoss(torch.nn.Module):
                 reduction='sum',
                 log_target=True
             ) * (T * T) / outputs_kd.numel()
+
+        elif self.distillation_type.lower() == 'hard':
 
         elif self.distillation_type.lower() == 'hard':
             distillation_loss = F.cross_entropy(outputs_kd, teacher_logits.argmax(dim=1))

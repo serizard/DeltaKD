@@ -3,7 +3,9 @@ from logs.logger import MetricLogger
 from timm.utils import accuracy, ModelEma
 import torch.nn as nn
 from model.models import forward_with_features
+from model.models import forward_with_features
 
+def train_one_epoch(student_model, teacher_model, train_loader, criterion, optimizer, loss_scaler, clip_grad, mixup_fn, model_ema, device, epoch, args):
 def train_one_epoch(student_model, teacher_model, train_loader, criterion, optimizer, loss_scaler, clip_grad, mixup_fn, model_ema, device, epoch, args):
     student_model.train()
     teacher_model.eval()
@@ -25,7 +27,17 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
                     student_feats = None
                 else:
                     student_logits, student_feats = forward_with_features(student_model, samples)
+                if args.distillation_type.lower() in ['soft', 'hard']:
+                    student_logits = student_model(samples)
+                    student_feats = None
+                else:
+                    student_logits, student_feats = forward_with_features(student_model, samples)
         else:
+            if args.distillation_type.lower() in ['soft', 'hard']:
+                student_logits = student_model(samples)
+                student_feats = None
+            else:
+                student_logits, student_feats = forward_with_features(student_model, samples)
             if args.distillation_type.lower() in ['soft', 'hard']:
                 student_logits = student_model(samples)
                 student_feats = None
@@ -44,6 +56,10 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
             acc1, acc5 = accuracy(student_logits, targets, topk=(1, 5))
         
         optimizer.zero_grad()
+        # this attribute is added by timm on one optimizer (adahessian)
+        is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
+        loss_scaler(loss, optimizer, clip_grad=clip_grad,
+                    parameters=student_model.parameters(), create_graph=is_second_order)
         # this attribute is added by timm on one optimizer (adahessian)
         is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
         loss_scaler(loss, optimizer, clip_grad=clip_grad,
@@ -71,6 +87,7 @@ def validate(student_model, val_loader, device, args):
         targets = targets.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast(enabled=True):
+            student_logits = student_model(samples)
             student_logits = student_model(samples)
 
         if not isinstance(student_logits, torch.Tensor):
