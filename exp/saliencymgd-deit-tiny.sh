@@ -12,7 +12,7 @@ NUM_GPUS=$(echo $GPU_IDS | tr ',' '\n' | wc -l)
 
 
 CUDA_VISIBLE_DEVICES=$GPU_IDS torchrun --nproc_per_node=$NUM_GPUS --master_port $MASTER_PORT tools/train.py \
-    --student-model deit_tiny_distilled_patch16_224 \
+    --student-model deit_tiny_patch16_224 \
     --teacher-model deit_small_distilled_patch16_224 \
     --dataset cifar-100 \
     --data-path /root/workspace/AAAKD/dataset \
@@ -20,11 +20,12 @@ CUDA_VISIBLE_DEVICES=$GPU_IDS torchrun --nproc_per_node=$NUM_GPUS --master_port 
     --batch-size 256 \
     --lr 5e-4 \
     --weight-decay 1e-4 \
-    --alpha 0.1 \
-    --tau 3.0 \
     --gpus $GPU_IDS \
-    --distillation-type soft \
-    --log-file logs/soft-deit-tiny-cifar100.log \
-    --save-dir checkpoints/soft-deit-tiny-cifar100 \
-    --wandb \
-    --wandb-project AAAKD
+    --distillation-type saliency_mgd \
+    --saliency-method 1 \
+    --saliency-mask-ratio 0.5 \
+    --alpha 0.1 \
+    --log-file logs/saliency_mgd-deit-tiny-cifar100.log \
+    --save-dir checkpoints/saliency_mgd-deit-tiny-cifar100 \
+    # --wandb \
+    # --wandb-project AAAKD

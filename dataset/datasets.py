@@ -28,6 +28,21 @@ DATASET_STATS = {
         'std': (0.229, 0.224, 0.225),
         'num_classes': 21843,
     },
+    'stanford_cars': {
+        'mean': (0.4707, 0.4601, 0.4549),
+        'std': (0.2767, 0.2760, 0.2850),
+        'num_classes': 196,
+    },
+    'caltech256': {
+        'mean': (0.485, 0.456, 0.406),
+        'std': (0.229, 0.224, 0.225),
+        'num_classes': 256,
+    },
+    'flowers': {
+        'mean': (0.4489, 0.4180, 0.3176),
+        'std': (0.2605, 0.2506, 0.2792),
+        'num_classes': 102,
+    },
 }
 
 class DatasetBuilder:
@@ -79,10 +94,33 @@ class DatasetBuilder:
                 transform=transform,
                 download=True
             )
+        elif self.args.dataset == 'stanford_cars':
+            split = 'train' if is_train else 'test'
+            dataset = datasets.StanfordCars(
+                root=self.args.data_path,
+                split=split,
+                transform=transform,
+                download=True
+            )
+        elif self.args.dataset == 'caltech256':
+            dataset = datasets.Caltech256(
+                root=self.args.data_path,
+                transform=transform,
+                download=True
+            )
+        elif self.args.dataset == 'flowers':
+            split = 'train' if is_train else 'val'
+            dataset = datasets.Flowers102(
+                root=self.args.data_path,
+                split=split,
+                transform=transform,
+                download=True
+            )
         else:
             split = 'train' if is_train else 'val'
             root = os.path.join(self.args.data_path, split)
             dataset = datasets.ImageFolder(root=root, transform=transform)
+        
         return dataset
 
     def build_loader(self, is_train=True):

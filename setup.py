@@ -17,6 +17,7 @@ setup(
         'pandas>=2.2.3',
         'tensorboard>=2.18.0',
         'wandb>=0.16.1',
+        'thop>=0.1.1',
     ],
     python_requires='>=3.8',
     classifiers=[

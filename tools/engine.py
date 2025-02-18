@@ -2,9 +2,9 @@ import torch
 from logs.logger import MetricLogger
 from timm.utils import accuracy, ModelEma
 import torch.nn as nn
+from model.models import forward_with_features
 
-
-def train_one_epoch(student_model, teacher_model, train_loader, criterion, optimizer, grad_scaler, mixup_fn, model_ema, device, epoch, args):
+def train_one_epoch(student_model, teacher_model, train_loader, criterion, optimizer, loss_scaler, clip_grad, mixup_fn, model_ema, device, epoch, args):
     student_model.train()
     teacher_model.eval()
     metric_logger = MetricLogger()
@@ -20,11 +20,20 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
 
         if args.amp:    
             with torch.cuda.amp.autocast(enabled=True):
-                student_logits, student_feats = student_model(samples)
+                if args.distillation_type.lower() in ['soft', 'hard']:
+                    student_logits = student_model(samples)
+                    student_feats = None
+                else:
+                    student_logits, student_feats = forward_with_features(student_model, samples)
         else:
-            student_logits, student_feats = student_model(samples)
+            if args.distillation_type.lower() in ['soft', 'hard']:
+                student_logits = student_model(samples)
+                student_feats = None
+            else:
+                student_logits, student_feats = forward_with_features(student_model, samples)
 
-        loss = criterion(samples, student_logits, student_feats, targets)
+        args.current_epoch = epoch
+        loss = criterion(samples, student_logits, student_model, student_feats, targets, args)
         
         if not isinstance(student_logits, torch.Tensor):
             student_logits, _ = student_logits
@@ -35,10 +44,10 @@ def train_one_epoch(student_model, teacher_model, train_loader, criterion, optim
             acc1, acc5 = accuracy(student_logits, targets, topk=(1, 5))
         
         optimizer.zero_grad()
-        loss.backward()
-        if grad_scaler is not None:
-            grad_scaler(student_model.parameters())
-        optimizer.step()
+        # this attribute is added by timm on one optimizer (adahessian)
+        is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
+        loss_scaler(loss, optimizer, clip_grad=clip_grad,
+                    parameters=student_model.parameters(), create_graph=is_second_order)
         
         if model_ema is not None:
             model_ema.update(student_model)
@@ -62,7 +71,7 @@ def validate(student_model, val_loader, device, args):
         targets = targets.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast(enabled=True):
-            student_logits, student_feats = student_model(samples)
+            student_logits = student_model(samples)
 
         if not isinstance(student_logits, torch.Tensor):
             student_logits, _ = student_logits
