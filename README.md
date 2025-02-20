@@ -1,4 +1,4 @@
-# AAAKD (1st brAIn research program)
+# DeltaKD (1st brAIn research program)
 Attention-Aware Adaptive Knowledge Distillation for Vision Transformers
 
 ## Contributors:
