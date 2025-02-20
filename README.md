@@ -11,13 +11,13 @@ Attention-Aware Adaptive Knowledge Distillation for Vision Transformers
 ## Install
 1. Clone this repo and run the commands below
 ```
-git clone https://github.com/serizard/AAAKD.git && cd AAAKD 
+git clone https://github.com/serizard/DeltaKD.git && cd AAAKD 
 ```
 
 2. Install Packages
 ```
-conda create -n aaakd python=3.10 -y
-conda activate aaakd
+conda create -n deltakd python=3.10 -y
+conda activate deltakd
 pip install -e .
 ```
 
